@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005 by Latchesar Ionkov <lucho@ionkov.net>
+ * Copyright (C) 2005-2025 by Latchesar Ionkov <lucho@ionkov.net>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -53,6 +53,7 @@ np_conn_create(Npsrv *srv, Nptrans *trans)
 	conn->srv = srv;
 	conn->msize = srv->msize;
 	conn->dotu = srv->dotu;
+	conn->dotl = srv->dotl;
 	conn->shutdown = 0;
 	conn->fidpool = np_fidpool_create();
 	conn->trans = trans;
@@ -366,6 +367,20 @@ done:
 
 	if (trans)
 		np_trans_destroy(trans); /* np_conn_read_proc will take care of resetting */
+}
+
+int
+np_conn_list_fids(Npconn *conn, Npfid ***fidlist)
+{
+	int n;
+
+	pthread_mutex_lock(&conn->lock);
+	n = np_fidpool_count(conn->fidpool);
+	*fidlist = malloc(n * sizeof(Npfid*));
+	np_fidpool_list(conn->fidpool, *fidlist, n);
+	pthread_mutex_unlock(&conn->lock);
+
+	return n;
 }
 
 static Npfcall *

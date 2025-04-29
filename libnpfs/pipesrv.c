@@ -76,6 +76,16 @@ np_pipesrv_create(int nwthreads)
 	return srv;
 }
 
+void
+np_pipesrv_getfds(Npsrv* srv, int *rfd, int *wfd)
+{
+	Pipesrv *ps;
+	
+	ps = srv->srvaux;
+	*rfd = ps->pipout[0];
+	*wfd = ps->pipin[1];
+}
+
 int
 np_pipesrv_mount(Npsrv *srv, char *mntpt, char *user, int mntflags, char *opts)
 {
@@ -83,7 +93,7 @@ np_pipesrv_mount(Npsrv *srv, char *mntpt, char *user, int mntflags, char *opts)
 	Pipesrv *ps;
 	char options[256];
 
-	np_pipesrv_start(srv);
+//	np_pipesrv_start(srv);
 
 	ps = srv->srvaux;
 	snprintf(options, sizeof(options), 
@@ -91,7 +101,7 @@ np_pipesrv_mount(Npsrv *srv, char *mntpt, char *user, int mntflags, char *opts)
 		srv->msize, user, srv->dotu?"":"noextend",
 		ps->pipout[0], ps->pipin[1], opts);
  
-	n = mount("none", mntpt, "9p", mntflags, options);
+	n = np_mount(mntpt, mntflags, options);
 	if (n < 0) {
 		ret = errno;
 		fprintf(stderr, "cannot mount: %d %s\n", ret, strerror(ret));

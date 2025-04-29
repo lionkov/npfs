@@ -2,7 +2,7 @@ SYSNAME:=${shell uname}
 SYSNAME!=uname
 MULTILIBPATH=${shell test -d /lib64 && echo lib64 || echo lib}
 HFILES=../include/npfs.h npfsimpl.h
-CFLAGS=-Wall -g -I../include -D$(SYSNAME)
+CFLAGS=-Wall -g -I../include -DSYSNAME_$(SYSNAME)
 INCLUDEDIRS:=/usr/include/ /usr/local/include/ /opt/include/
 
 ifeq ($(SYSNAME), SunOS)
@@ -24,10 +24,12 @@ LIBFILES=\
 	np.o\
 	pvusers.o\
 	socksrv.o\
+	pipesrv.o\
 	srv.o\
 	trans.o\
 	user.o\
 	uxusers.o\
+	mount-$(SYSNAME).o\
 
 #ifeq ($(SYSNAME), Linux)
 #	LIBFILES += pipesrv.o

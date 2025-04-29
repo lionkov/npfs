@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005, 2024 by Latchesar Ionkov <lucho@ionkov.net>
+ * Copyright (C) 2005-2025 by Latchesar Ionkov <lucho@ionkov.net>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -296,7 +296,7 @@ np_walk(Npreq *req, Npfcall *tc)
 		goto done;
 	}*/
 
-	if (fid->omode != (u16) ~0) {
+	if (fid->omode != Onotopen) {
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
@@ -370,7 +370,7 @@ np_open(Npreq *req, Npfcall *tc)
 		np_fid_incref(fid);
 
 	req->fid = fid;
-	if (fid->omode != (u16)~0) {
+	if (fid->omode != Onotopen) {
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
@@ -404,7 +404,7 @@ np_create(Npreq *req, Npfcall *tc)
 		np_fid_incref(fid);
 
 	req->fid = fid;
-	if (fid->omode != (u16)~0) {
+	if (fid->omode != Onotopen) {
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
@@ -482,7 +482,7 @@ np_read(Npreq *req, Npfcall *tc)
 		goto done;
 	}
 
-	if (fid->omode==(u16)~0 || (fid->omode&3)==Owrite) {
+	if (fid->omode==Onotopen || (fid->omode&3)==Owrite) {
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
@@ -533,7 +533,7 @@ np_write(Npreq *req, Npfcall *tc)
 		goto done;
 	}
 
-	if (fid->omode==(u16)~0 || fid->type&Qtdir || (fid->omode&3)==Oread) {
+	if (fid->omode==Onotopen || fid->type&Qtdir || (fid->omode&3)==Oread) {
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
@@ -578,7 +578,7 @@ np_clunk(Npreq *req, Npfcall *tc)
 		goto done;
 	}
 
-	if (fid->omode!=(u16)~0 && fid->omode==Orclose) {
+	if (fid->omode!=Onotopen && fid->omode==Orclose) {
 		rc = (*conn->srv->remove)(fid);
 		if (rc->type == Rerror)
 			goto done;
@@ -776,7 +776,7 @@ Npfcall *np_lcreate(Npreq *req, Npfcall *tc)
 		np_fid_incref(fid);
 
 	req->fid = fid;
-	if (fid->omode != (u16)~0) {
+	if (fid->omode != Onotopen) {
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
@@ -817,7 +817,7 @@ Npfcall *np_symlink(Npreq *req, Npfcall *tc)
 		np_fid_incref(fid);
 
 	req->fid = fid;
-	if (fid->omode != (u16)~0) {
+	if (fid->omode != Onotopen) {
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
@@ -857,7 +857,7 @@ Npfcall *np_mknod(Npreq *req, Npfcall *tc)
 		np_fid_incref(fid);
 
 	req->fid = fid;
-	if (fid->omode != (u16)~0) {
+	if (fid->omode != Onotopen) {
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
@@ -1068,7 +1068,7 @@ Npfcall *np_readdir(Npreq *req, Npfcall *tc)
 		goto done;
 	}
 
-	if ((fid->omode==(u16)~0) || ((fid->omode&3)==Owrite) || (!(fid->type&Qtdir))) {
+	if ((fid->omode==Onotopen) || ((fid->omode&3)==Owrite) || (!(fid->type&Qtdir))) {
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
@@ -1169,7 +1169,7 @@ Npfcall *np_link(Npreq *req, Npfcall *tc)
 
 	req->fid = fid;
 
-	if (dfid->omode != (u16)~0) {
+	if (dfid->omode != Onotopen) {
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
@@ -1202,7 +1202,7 @@ Npfcall *np_mkdir(Npreq *req, Npfcall *tc)
 		np_fid_incref(fid);
 
 	req->fid = fid;
-	if (fid->omode != (u16)~0) {
+	if (fid->omode != Onotopen) {
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
@@ -1234,7 +1234,7 @@ Npfcall *np_renameat(Npreq *req, Npfcall *tc)
 		np_fid_incref(ofid);
 
 	req->fid = ofid;
-	if (ofid->omode != (u16)~0) {
+	if (ofid->omode != Onotopen) {
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
@@ -1251,7 +1251,7 @@ Npfcall *np_renameat(Npreq *req, Npfcall *tc)
 	} else 
 		np_fid_incref(nfid);
 
-	if (nfid->omode != (u16)~0) {
+	if (nfid->omode != Onotopen) {
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
@@ -1283,7 +1283,7 @@ Npfcall *np_unlinkat(Npreq *req, Npfcall *tc)
 	} else 
 		np_fid_incref(fid);
 
-	if (fid->omode != (u16)~0) {
+	if (fid->omode != Onotopen) {
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}

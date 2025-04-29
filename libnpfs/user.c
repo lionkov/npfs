@@ -110,6 +110,7 @@ np_change_user(Npuser *u)
 }
 
 #else // !_WIN32
+#if 0
 int
 sreuid(int a, int b)
 {
@@ -121,7 +122,7 @@ sregid(int a, int b)
 {
 	return syscall(SYS_setregid, a, b);
 }
-
+#endif
 int
 np_change_user(Npuser *u)
 {

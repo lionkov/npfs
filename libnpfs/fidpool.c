@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005 by Latchesar Ionkov <lucho@ionkov.net>
+ * Copyright (C) 2005-2025 by Latchesar Ionkov <lucho@ionkov.net>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -68,6 +68,39 @@ np_fidpool_destroy(Npfidpool *pool)
 	free(pool);
 }
 
+int
+np_fidpool_count(Npfidpool *pool)
+{
+	int i, ret;
+	Npfid *f;
+
+	ret = 0;
+	for(i = 0; i < pool->size; i++) {
+		for(f = pool->htable[i]; f != NULL; f = f->next)
+			ret++;
+	}
+
+	return ret;
+}
+
+int
+np_fidpool_list(Npfidpool *pool, Npfid **fidlist, int count)
+{
+	int i, ret;
+	Npfid *f;
+
+	ret = 0;
+	for(i = 0; i < pool->size; i++) {
+		for(f = pool->htable[i]; f != NULL && ret < count; f = f->next) {
+			np_fid_incref(f);
+			fidlist[ret] = f;
+			ret++;
+		}
+	}
+
+	return ret;
+}
+
 Npfid *
 np_fid_lookup(Npfidpool *fp, u32 fid, int hash)
 {
@@ -133,7 +166,7 @@ np_fid_create(Npconn *conn, u32 fid, void *aux)
 		f->fid = fid;
 		f->conn = conn;
 		f->refcount = 0;
-		f->omode = ~0;
+		f->omode = Onotopen;
 		f->type = 0;
 		f->diroffset = 0;
 		f->user = NULL;

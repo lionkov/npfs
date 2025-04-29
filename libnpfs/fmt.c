@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005 by Latchesar Ionkov <lucho@ionkov.net>
+ * Copyright (C) 2005-2025 by Latchesar Ionkov <lucho@ionkov.net>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -325,7 +325,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 
 	case Rstatfs:
 		sf = &fc->stfs;
-		ret += fprintf(f, "Rstatfs tag %u type %d bsize %d blocks %lu bfree %lu bavail %lu files %lu ffree %lu fsid %lu namelen %d",
+		ret += fprintf(f, "Rstatfs tag %u type %d bsize %d blocks %llu bfree %llu bavail %llu files %llu ffree %llu fsid %llu namelen %d",
 			tag, sf->type, sf->bsize, sf->blocks, sf->bfree,
 			sf->bavail, sf->files, sf->ffree, sf->fsid, sf->namelen);
 		break;
@@ -396,30 +396,30 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Tgetattr:
-		ret += fprintf(f, "Tgetattr tag %u fid %d mask %lu", tag, fc->fid, fc->mask);
+		ret += fprintf(f, "Tgetattr tag %u fid %d mask %llu", tag, fc->fid, fc->mask);
 		break;
 
 	case Rgetattr:
 		attrs = &fc->attrs;
-		ret += fprintf(f, "Rgetattr tag %u mask %lu qid ", tag, fc->mask);
+		ret += fprintf(f, "Rgetattr tag %u mask %llu qid ", tag, fc->mask);
 		ret += np_printqid(f, &fc->qid);
-		ret += fprintf(f, "mode %d uid %d gid %d nlink %lu rdev %lu ",
+		ret += fprintf(f, "mode %d uid %d gid %d nlink %llu rdev %llu ",
 			attrs->mode, attrs->uid, attrs->gid, attrs->nlink, attrs->rdev);
-		ret += fprintf(f, "size %lu blksize %lu blocks %lu ",
+		ret += fprintf(f, "size %llu blksize %llu blocks %llu ",
 			attrs->size, attrs->blksize, attrs->blocks);
-		ret += fprintf(f, "atime_sec %lu atime_nsec %lu ", attrs->atime_sec, attrs->atime_nsec);
-		ret += fprintf(f, "mtime_sec %lu mtime_nsec %lu ", attrs->mtime_sec, attrs->mtime_nsec);
-		ret += fprintf(f, "ctime_sec %lu ctime_nsec %lu ", attrs->ctime_sec, attrs->ctime_nsec);
-		ret += fprintf(f, "btime_sec %lu btime_nsec %lu ", attrs->btime_sec, attrs->btime_nsec);
-		ret += fprintf(f, "gen %lu data_version %lu", attrs->gen, attrs->data_version);
+		ret += fprintf(f, "atime_sec %llu atime_nsec %llu ", attrs->atime_sec, attrs->atime_nsec);
+		ret += fprintf(f, "mtime_sec %llu mtime_nsec %llu ", attrs->mtime_sec, attrs->mtime_nsec);
+		ret += fprintf(f, "ctime_sec %llu ctime_nsec %llu ", attrs->ctime_sec, attrs->ctime_nsec);
+		ret += fprintf(f, "btime_sec %llu btime_nsec %llu ", attrs->btime_sec, attrs->btime_nsec);
+		ret += fprintf(f, "gen %llu data_version %llu", attrs->gen, attrs->data_version);
 		break;
 
 	case Tsetattr:
 		attrs = &fc->attrs;
-		ret += fprintf(f, "Tsetattr tag %u fid %d mask %lu", tag, fc->fid, fc->mask);
+		ret += fprintf(f, "Tsetattr tag %u fid %d mask %llu", tag, fc->fid, fc->mask);
 		ret += fprintf(f, "mode %d uid %d gid %d ", attrs->mode, attrs->uid, attrs->gid);
-		ret += fprintf(f, "atime_sec %lu atime_nsec %lu ", attrs->atime_sec, attrs->atime_nsec);
-		ret += fprintf(f, "mtime_sec %lu mtime_nsec %lu", attrs->mtime_sec, attrs->mtime_nsec);
+		ret += fprintf(f, "atime_sec %llu atime_nsec %llu ", attrs->atime_sec, attrs->atime_nsec);
+		ret += fprintf(f, "mtime_sec %llu mtime_nsec %llu", attrs->mtime_sec, attrs->mtime_nsec);
 		break;
 
 	case Rsetattr:
@@ -445,7 +445,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Treaddir:
-		ret += fprintf(f, "Treaddir tag %u fid %d offset %lu count %d", tag, fc->fid, fc->offset, fc->count);
+		ret += fprintf(f, "Treaddir tag %u fid %d offset %llu count %d", tag, fc->fid, fc->offset, fc->count);
 		break;
 
 	case Rreaddir:
@@ -462,7 +462,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Tlock:
-		ret += fprintf(f, "Tlock tag %u fid %d type %d flags %d offset %lu length %lu procid %d clientid %.*s",
+		ret += fprintf(f, "Tlock tag %u fid %d type %d flags %d offset %llu length %llu procid %d clientid %.*s",
 			tag, fc->fid, fc->locktype, fc->flags, fc->offset,
 			fc->locklength, fc->procid, fc->clientid.len, fc->clientid.str);
 		break;
@@ -472,13 +472,13 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Tgetlock:
-		ret += fprintf(f, "Tgetlock tag %u fid %d type %d offset %lu length %lu procid %d clientid %.*s",
+		ret += fprintf(f, "Tgetlock tag %u fid %d type %d offset %llu length %llu procid %d clientid %.*s",
 			tag, fc->fid, fc->locktype, fc->offset, fc->locklength,
 			fc->procid, fc->clientid.len, fc->clientid.str);
 		break;
 
 	case Rgetlock:
-		ret += fprintf(f, "Rgetlock tag %u fid %d type %d offset %lu length %lu procid %d clientid %.*s",
+		ret += fprintf(f, "Rgetlock tag %u fid %d type %d offset %llu length %llu procid %d clientid %.*s",
 			tag, fc->fid, fc->locktype, fc->offset, fc->locklength,
 			fc->procid, fc->clientid.len, fc->clientid.str);
 		break;

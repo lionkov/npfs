@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005,2024 by Latchesar Ionkov <lucho@ionkov.net>
+ * Copyright (C) 2005-2025 by Latchesar Ionkov <lucho@ionkov.net>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -185,6 +185,9 @@ enum {
 
 	Ouspecial	= 0x100,	/* internal use */
 };
+
+// the file is not open
+#define Onotopen ((u16) ~0)
 
 /* permissions */
 enum {
@@ -721,10 +724,13 @@ void np_conn_decref(Npconn *);
 void np_conn_reset(Npconn *, u32, int, int);
 void np_conn_shutdown(Npconn *);
 void np_conn_respond(Npreq *req);
+int np_conn_list_fids(Npconn *conn, Npfid ***fidlist);
 void np_respond(Npreq *, Npfcall *);
 
 Npfidpool *np_fidpool_create(void);
 void np_fidpool_destroy(Npfidpool *);
+int np_fidpool_count(Npfidpool *pool);
+int np_fidpool_list(Npfidpool *pool, Npfid **fidlist, int count);
 Npfid *np_fid_find(Npconn *, u32);
 Npfid *np_fid_create(Npconn *, u32, void *);
 void np_fid_destroy(Npfid *);
@@ -792,33 +798,33 @@ Npfcall *np_create_rsymlink(Npqid *qid);
 Npfcall *np_create_tmknod(u32 dfid, char *name, u32 mode, u32 major, u32 minor, u32 gid);
 Npfcall *np_create_rmknod(Npqid *qid);
 Npfcall *np_create_trename(u32 fid, u32 dfid, char *name);
-Npfcall *np_create_rrename();
+Npfcall *np_create_rrename(void);
 Npfcall *np_create_treadlink(u32 fid);
 Npfcall *np_create_rreadlink(char *target);
 Npfcall *np_create_tgetattr(u32 fid, u64 mask);
 Npfcall *np_create_rgetattr(u64 mask, Npattrs *attrs, Npqid *qid);
 Npfcall *np_create_tsetattr(u32 fid, u32 mask, Npattrs *attrs);
-Npfcall *np_create_rsetattr();
+Npfcall *np_create_rsetattr(void);
 Npfcall *np_create_txattrwalk(u32 fid, u32 newfid, char *name);
 Npfcall *np_create_rxattrwalk(u64 size);
 Npfcall *np_create_txattrcreate(u32 fid, char *name, u64 size, u32 flags);
-Npfcall *np_create_rxattrcreate();
+Npfcall *np_create_rxattrcreate(void);
 Npfcall *np_create_treaddir(u32 fid, u64 offset, u32 count);
 Npfcall *np_create_rreaddir(u32 count, u8 *data);
 Npfcall *np_create_tfsync(u32 fid);
-Npfcall *np_create_rfsync();
+Npfcall *np_create_rfsync(void);
 Npfcall *np_create_tlock(u32 fid, u8 type, u32 flags, u64 offset, u64 length, u32 procid, char *clientid);
 Npfcall *np_create_rlock(u8 status);
 Npfcall *np_create_tgetlock(u32 fid, u8 type, u64 offset, u64 length, u32 procid, char *clientid);
 Npfcall *np_create_rgetlock(u8 type, u64 offset, u64 length, u32 procid, char *clientid);
 Npfcall *np_create_tlink(u32 dfid, u32 fid, char *name);
-Npfcall *np_create_rlink();
+Npfcall *np_create_rlink(void);
 Npfcall *np_create_tmkdir(u32 dfid, char *name, u32 mode, u32 gid);
 Npfcall *np_create_rmkdir(Npqid *qid);
 Npfcall *np_create_trenameat(u32 odfid, char *oname, u32 ndfid, char *nname);
-Npfcall *np_create_rrenameat();
+Npfcall *np_create_rrenameat(void);
 Npfcall *np_create_tunlinkat(u32 dfid, char *name, u32 flags);
-Npfcall *np_create_runlinkat();
+Npfcall *np_create_runlinkat(void);
 
 int np_printstat(FILE *f, Npstat *st, int dotu);
 int np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl);
@@ -842,6 +848,7 @@ int np_priv_group_deluser(Npgroup *g, Npuser *u);
 Nptrans *np_fdtrans_create(int, int);
 Npsrv *np_socksrv_create_tcp(int, int*);
 Npsrv *np_pipesrv_create(int nwthreads);
+void np_pipesrv_getfds(Npsrv* srv, int *rfd, int *wfd);
 int np_pipesrv_mount(Npsrv *srv, char *mntpt, char *user, int mntflags, char *opts);
 
 #ifdef NPRDMA

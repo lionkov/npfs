@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005 by Latchesar Ionkov <lucho@ionkov.net>
+ * Copyright (C) 2005-2025 by Latchesar Ionkov <lucho@ionkov.net>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -32,12 +32,12 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#if SYSNAME != Linux
+#ifdef SYSNAME_Linux
 #include <sys/sysmacros.h>
 #include <sys/vfs.h>
 #endif
 
-#if SYSNAME == Darwin
+#ifdef SYSNAME_Darwin
 #include <sys/param.h>
 #include <sys/mount.h>
 #endif
@@ -48,22 +48,16 @@
 #include <utime.h>
 #include <sys/xattr.h>
 #include <sys/time.h>
-#include "npfs.h"
-#include "ufs.h"
+#include <npfs.h>
+#include <ufs.h>
 
-#if SYSNAME == Linux
-#define NPFS_USE_AIO
-#else
-#undef NPFS_USE_AIO
-#endif
-
-#undef NPFS_USE_AIO
+#include "ufsimpl.h"
 
 #define NELEM(x)	(sizeof(x)/sizeof((x)[0]))
 
 // The differences between Linux and Darwin are small enough to solve them
 // with few defines...
-#if SYSNAME == Darwin
+#ifdef SYSNAME_Darwin
 
 #define STAT_MTIME(st) ((st)->st_mtimespec)
 #define STAT_ATIME(st) ((st)->st_atimespec)
@@ -81,28 +75,11 @@
 #define STAT_CTIME(st) ((st)->st_ctim)
 #define SETXATTR(path, name, val, valsz, flags) lsetxattr(path, name, val, valsz, flags)
 #define LISTXATTR(path, buf, bufsz) llistxattr(path, buf, bufsz)
-#define GETXATTR(path, name, val, valsz) lgetxattr(path, name, val, valsz, 0)
+#define GETXATTR(path, name, val, valsz) lgetxattr(path, name, val, valsz)
 #define DIRENT_OFF(d) ((d)->d_off)
-#define STATFS_NAMELEN(sf) ((sf)->f_namelen
+#define STATFS_NAMELEN(sf) ((sf)->f_namelen)
 
 #endif
-
-typedef struct Fid Fid;
-
-struct Fid {
-	char*		path;
-	int		omode;
-	int		fd;
-	DIR*		dir;
-	int		diroffset;
-	char*		direntname;
-	struct stat	stat;
-
-	char*		xattrname;	// xattrcreate
-	u32		xattrflags;	// xattrcreate
-	u64		xattrsz;
-	u8*		xattrdata;
-};
 
 Npsrv *srv;
 int debuglevel;
@@ -115,7 +92,7 @@ char *Eformat = "incorrect extension format";
 char *Ecreatesocket = "cannot create socket";
 //char *E = "";
 
-static int fidstat(Fid *fid);
+int fidstat(Fid *fid);
 static void ustat2qid(struct stat *st, Npqid *qid);
 static u8 ustat2qidtype(struct stat *st);
 static void ustat2attrs(struct stat *st, Npattrs *at);
@@ -123,33 +100,7 @@ static u32 umode2npmode(mode_t umode, int dotu);
 static mode_t npstat2umode(Npstat *st, int dotu);
 static void ustat2npwstat(char *path, struct stat *st, Npwstat *wstat, int dotu, Npuserpool *up);
 
-static int npfs_aio_read(Npfid *fid, Npfcall *rread, u64 offset, u32 count, Npreq *);
-static int npfs_aio_write(Npfid *fid, u8 *data, u64 offset, u32 count, Npreq *);
-
-#ifdef NPFS_USE_AIO
-#include <libaio.h>
-typedef struct Aioreq Aioreq;
-
-struct Aioreq {
-	struct iocb	iocb;
-	Npreq*		req;
-	Npfid*		fid;
-	Npfcall*	rread;
-	Aioreq*		next;
-	Aioreq*		prev;
-};
-
-int use_aio = 1;
-io_context_t aio_ctx;
-pthread_mutex_t aio_lock = PTHREAD_MUTEX_INITIALIZER;
-Aioreq *aio_reqs;
-#else
-int use_aio = 0;
-#endif
-
-pthread_t aio_thread;
-
-static int
+int
 fidstat(Fid *fid)
 {
 	if (lstat(fid->path, &fid->stat) < 0)
@@ -161,14 +112,13 @@ fidstat(Fid *fid)
 	return 0;
 }
 
-static Fid*
-npfs_fidalloc() {
+Fid* npfs_fidalloc() {
 	Fid *f;
 
 	f = malloc(sizeof(*f));
 
 	f->path = NULL;
-	f->omode = -1;
+	f->omode = Onotopen;
 	f->fd = -1;
 	f->dir = NULL;
 	f->diroffset = 0;
@@ -211,7 +161,7 @@ create_rerror(int ecode)
 	np_werror(buf, ecode);
 }
 
-static int
+int
 omode2uflags(u8 mode)
 {
 	int ret;
@@ -831,12 +781,6 @@ npfs_read(Npfid *fid, u64 offset, u32 count, Npreq *req)
 	} else if (f->dir) {
 		n = npfs_read_dir(fid, ret->data, offset, count, fid->conn->dotu);
 	} else {
-		if (use_aio) {
-			n = npfs_aio_read(fid, ret, offset, count, req);
-			if (n >= 0)
-				return NULL;
-		}
-			
 		n = pread(f->fd, ret->data, count, offset);
 		if (n < 0)
 			create_rerror(errno);
@@ -871,13 +815,6 @@ npfs_write(Npfid *fid, u64 offset, u32 count, u8 *data, Npreq *req)
 
 		memmove(f->xattrdata+offset, data, n);
 	} else {
-		if (use_aio) {
-			n = npfs_aio_write(fid, data, offset, count, req);
-//			fprintf(stderr, "$$ %d\n", n);
-			if (n >= 0)
-				return NULL;
-		}
-
 		n = pwrite(f->fd, data, count, offset);
 		if (n < 0) {
 			create_rerror(errno);
@@ -1077,72 +1014,9 @@ out:
 	return ret;
 }
 
-#ifdef NPFS_USE_AIO
-static void
-npfs_aio_respond(Aioreq *areq, struct io_event *event, int flush)
-{
-	int count;
-	Npfcall *rc;
-	char buf[128];
-
-	count = event->res;
-	rc = NULL;
-
-	if (count<0 && !flush) {
-		if (areq->req->tcall->type == Tread)
-			free(areq->rread);
-
-		if (strerror_r(count, buf, sizeof(buf)))
-			strcpy(buf, "unknown error");
-
-		rc = np_create_rerror(buf, count, areq->req->conn->dotu);
-	} else {
-		if (areq->req->tcall->type == Tread) {
-			rc = areq->rread;
-			np_set_rread_count(rc, count);
-		} else {
-			rc = np_create_rwrite(count);
-		}
-	}
-
-//	np_fid_decref(areq->fid);
-	np_respond(areq->req, rc);
-	free(areq);
-}
-#endif
-
 void
 npfs_flush(Npreq *req)
 {
-	if (req->tcall->type!=Tread && req->tcall->type!=Twrite)
-		return;
-
-#ifdef NPFS_USE_AIO
-	{
-	struct io_event event;
-	Aioreq *areq;
-
-	pthread_mutex_lock(&aio_lock);
-	for(areq = aio_reqs; areq != NULL; areq = areq->next) {
-		if (areq->req == req) {
-			io_cancel(aio_ctx, &areq->iocb, &event);
-			npfs_aio_respond(areq, &event, 1);
-
-			if (areq->prev)
-				areq->prev->next = areq->next;
-			else
-				aio_reqs = areq->next;
-			if (areq->next)
-				areq->next->prev = areq->prev;
-
-			free(areq);
-			break;
-		}
-	}
-	pthread_mutex_unlock(&aio_lock);
-	}
-#endif
-
 	return;
 }
 
@@ -1864,6 +1738,7 @@ out:
 
 Npfcall* npfs_unlinkat(Npfid *dfid, Npstr *name)
 {
+	int flags;
 	Fid *f;
 	Npfcall *ret;
 	char *npath;
@@ -1884,7 +1759,11 @@ Npfcall* npfs_unlinkat(Npfid *dfid, Npstr *name)
 //		dfid->omode = Oread;
 	}
 
-	if (unlinkat(f->fd, npath, 0) < 0) {
+	flags = 0;
+	if (f->stat.st_mode & S_IFDIR)
+		flags |= AT_REMOVEDIR;
+
+	if (unlinkat(f->fd, npath, flags) < 0) {
 		create_rerror(errno);
 		goto out;
 	}
@@ -1894,102 +1773,4 @@ Npfcall* npfs_unlinkat(Npfid *dfid, Npstr *name)
 out:
 	free(npath);
 	return ret;
-}
-
-int
-npfs_aio_init(int n)
-{
-	int ret = 0;
-
-#ifdef NPFS_USE_AIO
-	ret = io_queue_init(n, &aio_ctx);
-#endif
-
-	return ret;
-}
-
-
-/*static*/ int
-npfs_aio_read(Npfid *fid, Npfcall *rread, u64 offset, u32 count, Npreq *req)
-{
-	int ret = ENOSYS;
-
-#ifdef NPFS_USE_AIO
-	Fid *f;
-	Aioreq *areq;
-	struct iocb *iocbs[1];
-
-	f = fid->aux;
-	areq = malloc(sizeof(*areq));
-	areq->req = req;
-	areq->fid = fid;
-	areq->rread = rread;
-	pthread_mutex_lock(&aio_lock);
-	areq->next = aio_reqs;
-	areq->prev = NULL;
-	aio_reqs = areq;
-	pthread_mutex_unlock(&aio_lock);
-	io_prep_pread(&areq->iocb, f->fd, rread->data, count, offset);
-	iocbs[0] = &areq->iocb;
-	ret = io_submit(aio_ctx, 1, iocbs);
-#endif
-
-	return ret;
-}
-
-/*static*/ int
-npfs_aio_write(Npfid *fid, u8 *data, u64 offset, u32 count, Npreq *req)
-{
-	int ret = ENOSYS;
-
-#ifdef NPFS_USE_AIO
-	Fid *f;
-	Aioreq *areq;
-	struct iocb *iocbs[1];
-
-	f = fid->aux;
-	areq = malloc(sizeof(*areq));
-	areq->req = req;
-	areq->fid = fid;
-	pthread_mutex_lock(&aio_lock);
-	areq->next = aio_reqs;
-	areq->prev = NULL;
-	aio_reqs = areq;
-	pthread_mutex_unlock(&aio_lock);
-	io_prep_pwrite(&areq->iocb, f->fd, data, count, offset);
-	iocbs[0] = &areq->iocb;
-	ret = io_submit(aio_ctx, 1, iocbs);
-#endif
-
-	return ret;
-}
-
-void*
-npfs_aio_proc(void *a)
-{
-#ifdef NPFS_USE_AIO
-	int i, n, count;
-	Aioreq *areq;
-	struct timespec ts;
-	struct io_event events[8];
-
-	ts.tv_sec = 100;
-	ts.tv_nsec = 0;
-
-	for(;;) {
-		n = io_getevents(aio_ctx, 1, 1 /* sizeof(events) / sizeof(events[0]) */,
-			events, &ts);
-
-//		fprintf(stderr,"++ %d\n", n);
-		for(i = 0; i < n; i++) {
-			count = events[i].res;
-			areq = (Aioreq *) ((char *) events[i].obj - 
-				(int) (&((Aioreq *)0)->iocb));
-
-			npfs_aio_respond(areq, &events[i], 0);
-		}
-	}
-#endif
-
-	return NULL;
 }

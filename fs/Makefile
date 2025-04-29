@@ -1,6 +1,6 @@
 SYSNAME:=${shell uname}
 SYSNAME!=uname
-CFLAGS=-Wall -g -I ../include -DSYSNAME=$(SYSNAME)
+CFLAGS=-Wall -g -I ../include -DSYSNAME_$(SYSNAME)
 LFLAGS=-lpthread -L../libnpfs -lnpfs
 GPHOTO_HPATH=/usr/include/gphoto2
 GPHOTO_LPATH=/usr/lib
