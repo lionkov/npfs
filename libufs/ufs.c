@@ -41,7 +41,7 @@
 
 #include "ufsimpl.h"
 
-Npsrv *ufs_start(int debuglevel, int nwthreads, int sameuser, int port)
+Npsrv *ufs_start(int debuglevel, int nwthreads, int same_user, int port)
 {
 	Npsrv *srv;
 
@@ -91,6 +91,7 @@ Npsrv *ufs_start(int debuglevel, int nwthreads, int sameuser, int port)
 	srv->fiddestroy = npfs_fiddestroy;
 	srv->debuglevel = debuglevel;
 
+	sameuser = same_user;
 	np_srv_start(srv);
 
 	return srv;
