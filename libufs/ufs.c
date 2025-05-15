@@ -41,7 +41,7 @@
 
 #include "ufsimpl.h"
 
-Npsrv *ufs_start(int debuglevel, int nwthreads, int same_user, int port)
+Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int same_user, int port)
 {
 	Npsrv *srv;
 
@@ -55,6 +55,7 @@ Npsrv *ufs_start(int debuglevel, int nwthreads, int same_user, int port)
 
 	srv->dotu = 1;
 	srv->dotl = 1;
+	srv->treeaux = rootdir;
 	srv->attach = npfs_attach;
 	srv->clone = npfs_clone;
 	srv->walk = npfs_walk;

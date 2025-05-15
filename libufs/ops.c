@@ -396,7 +396,8 @@ npfs_check_regular(Fid *f)
 Npfcall*
 npfs_attach(Npfid *nfid, Npfid *nafid, Npstr *uname, Npstr *aname)
 {
-	int err;
+	int n, err;
+	char *rootdir, *path;
 	Npfcall* ret;
 	Fid *fid;
 	Npqid qid;
@@ -411,11 +412,14 @@ npfs_attach(Npfid *nfid, Npfid *nafid, Npstr *uname, Npstr *aname)
 
 	fid = npfs_fidalloc();
 	fid->omode = -1;
-	if (aname->len==0 || *aname->str!='/')
-		fid->path = strdup("/");
-	else
-		fid->path = np_strdup(aname);
-	
+
+	n = strlen(rootdir);
+	rootdir = (char *) nfid->conn->srv->treeaux;
+	path = malloc(n + aname->len + 2);
+	memmove(path, rootdir, n);
+	path[n] = '/';
+	memmove(&path[n+1], aname->str, aname->len);
+	fid->path = path;
 	nfid->aux = fid;
 	err = fidstat(fid);
 	if (err < 0) {
