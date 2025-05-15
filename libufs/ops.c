@@ -413,8 +413,8 @@ npfs_attach(Npfid *nfid, Npfid *nafid, Npstr *uname, Npstr *aname)
 	fid = npfs_fidalloc();
 	fid->omode = -1;
 
-	n = strlen(rootdir);
 	rootdir = (char *) nfid->conn->srv->treeaux;
+	n = strlen(rootdir);
 	path = malloc(n + aname->len + 2);
 	memmove(path, rootdir, n);
 	path[n] = '/';
