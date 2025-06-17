@@ -121,8 +121,7 @@ Fid* npfs_fidalloc() {
 	f->omode = Onotopen;
 	f->fd = -1;
 	f->dir = NULL;
-	f->diroffset = 0;
-	f->direntname = NULL;
+//	f->diroffset = 0;
 	f->xattrname = NULL;
 	f->xattrdata = NULL;
 	f->xattrsz = 0;
@@ -693,7 +692,7 @@ u32
 npfs_read_dir(Npfid *fid, u8* buf, u64 offset, u32 count, int dotu)
 {
 	int i, n, plen;
-	char *dname, *path;
+	char *path;
 	struct dirent *dirent;
 	struct stat st;
 	Npwstat wstat;
@@ -712,28 +711,23 @@ npfs_read_dir(Npfid *fid, u8* buf, u64 offset, u32 count, int dotu)
 
 	if (offset == 0) {
 		rewinddir(f->dir);
-		f->diroffset = 0;
+//		f->diroffset = 0;
 	}
 
 	plen = strlen(f->path);
 	n = 0;
 	dirent = NULL;
-	dname = f->direntname;
 	while (n < count) {
-		if (!dname) {
-			dirent = readdir(f->dir);
-			if (!dirent)
-				break;
+		dirent = readdir(f->dir);
+		if (!dirent)
+			break;
 
-			if (strcmp(dirent->d_name, ".") == 0
-			|| strcmp(dirent->d_name, "..") == 0)
-				continue;
+		if (strcmp(dirent->d_name, ".") == 0
+		|| strcmp(dirent->d_name, "..") == 0)
+			continue;
 
-			dname = dirent->d_name;
-		}
-
-		path = malloc(plen + strlen(dname) + 2);
-		sprintf(path, "%s/%s", f->path, dname);
+		path = malloc(plen + strlen(dirent->d_name) + 2);
+		sprintf(path, "%s/%s", f->path, dirent->d_name);
 		if (lstat(path, &st) < 0) {
 			free(path);
 			create_rerror(errno);
@@ -748,19 +742,10 @@ npfs_read_dir(Npfid *fid, u8* buf, u64 offset, u32 count, int dotu)
 		if (i==0)
 			break;
 
-		dname = NULL;
 		n += i;
 	}
 
-	if (f->direntname) {
-		free(f->direntname);
-		f->direntname = NULL;
-	}
-
-	if (dirent)
-		f->direntname = strdup(dirent->d_name);
-
-	f->diroffset += n;
+//	f->diroffset += n;
 	return n;
 }
 
@@ -1123,7 +1108,7 @@ Npfcall* npfs_lcreate(Npfid *fid, Npstr *name, u32 flags, u32 perm, u32 gid)
 	f->path = npath;
 	npath = NULL;
 	ustat2qid(&f->stat, &qid);
-	ret = np_create_rcreate(&qid, 0);
+	ret = np_create_rlcreate(&qid, 0);
 
 out:
 	free(npath);
@@ -1247,17 +1232,19 @@ out:
 
 Npfcall* npfs_readlink(Npfid *fid)
 {
+	int n;
 	Fid *f;
 	Npfcall *ret;
 	char buf[1024];
 
 	ret = NULL;
 	f = fid->aux;
-	if (readlink(f->path, buf, sizeof(buf)) < 0) {
+	if ((n = readlink(f->path, buf, sizeof(buf))) < 0) {
 		create_rerror(errno);
 		goto out;
 	}
 
+	buf[n] = '\0';
 	ret = np_create_rreadlink(buf);
 
 out:
@@ -1471,8 +1458,8 @@ out:
 Npfcall* npfs_readdir(Npfid *dfid, u64 offset, u32 count, Npreq *req)
 {
 	int i, n, plen;
-	uint64_t off;
-	char *dname, *path;
+	uint64_t off, diroff;
+	char *path;
 	struct dirent *d;
 	struct stat st;
 	Npqid qid;
@@ -1480,7 +1467,7 @@ Npfcall* npfs_readdir(Npfid *dfid, u64 offset, u32 count, Npreq *req)
 	Npfcall *ret;
 
 	f = dfid->aux;
-	ret = np_alloc_rread(count);
+	ret = np_alloc_rreaddir(count);
 	npfs_set_user(dfid->user);
 
 	if (f->dir == NULL) {
@@ -1493,30 +1480,26 @@ Npfcall* npfs_readdir(Npfid *dfid, u64 offset, u32 count, Npreq *req)
 
 	if (offset == 0) {
 		rewinddir(f->dir);
-		f->diroffset = 0;
+//		f->diroffset = 0;
 	}
 
 	plen = strlen(f->path);
 	n = 0;
 	d = NULL;
-	dname = f->direntname;
 	while (n < count) {
-		if (!dname) {
-			d = readdir(f->dir);
-			if (!d)
-				break;
+		diroff = telldir(f->dir);
+		d = readdir(f->dir);
+		if (!d)
+			break;
 
-			if (strcmp(d->d_name, ".") == 0
-			|| strcmp(d->d_name, "..") == 0)
-				continue;
-
-			dname = d->d_name;
-		}
+		if (strcmp(d->d_name, ".") == 0
+		|| strcmp(d->d_name, "..") == 0)
+			continue;
 
 		memset(&qid, 0, sizeof(qid));
 		if (d->d_type == DT_UNKNOWN) {
-			path = malloc(plen + strlen(dname) + 2);
-			sprintf(path, "%s/%s", f->path, dname);
+			path = malloc(plen + strlen(d->d_name) + 2);
+			sprintf(path, "%s/%s", f->path, d->d_name);
 		
 			if (lstat(path, &st) < 0) {
 				free(path);
@@ -1543,24 +1526,17 @@ Npfcall* npfs_readdir(Npfid *dfid, u64 offset, u32 count, Npreq *req)
 		}
 
 		off = DIRENT_OFF(d);
-		i = np_serialize_dirent(&qid, off, d->d_type, dname, ret->data + n, count - n - 1);
-		if (i==0)
+		i = np_serialize_dirent(&qid, off, d->d_type, d->d_name, ret->data + n, count - n - 1);
+		if (i==0) {
+			seekdir(f->dir, diroff);
 			break;
+		}
 
-		dname = NULL;
 		n += i;
 	}
 
-	if (f->direntname) {
-		free(f->direntname);
-		f->direntname = NULL;
-	}
-
-	if (d)
-		f->direntname = strdup(d->d_name);
-
-	f->diroffset += n;
-	np_set_rread_count(ret, n);
+//	f->diroffset += n;
+	np_set_rreaddir_count(ret, n);
 
 	return ret;
 }

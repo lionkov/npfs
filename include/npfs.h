@@ -784,6 +784,8 @@ Npfcall *np_create_twstat(u32 fid, Npwstat *wstat, int dotu);
 Npfcall *np_create_rwstat(void);
 Npfcall * np_alloc_rread(u32);
 void np_set_rread_count(Npfcall *, u32);
+Npfcall * np_alloc_rreaddir(u32);
+void np_set_rreaddir_count(Npfcall *, u32);
 
 /* 9P2000.L */
 Npfcall *np_create_rlerror(u32 ecode);

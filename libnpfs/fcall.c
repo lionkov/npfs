@@ -534,6 +534,7 @@ np_write(Npreq *req, Npfcall *tc)
 	}
 
 	if (fid->omode==Onotopen || fid->type&Qtdir || (fid->omode&3)==Oread) {
+//		printf("np_write: Error omode %d\n", fid->omode);
 		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
@@ -793,7 +794,7 @@ Npfcall *np_lcreate(Npreq *req, Npfcall *tc)
 
 	rc = (*conn->srv->lcreate)(fid, &tc->name, tc->flags, tc->perm, tc->gid);
 	if (rc && rc->type == Rlcreate) {
-		fid->omode = tc->mode;
+		fid->omode = uflags2omode(tc->flags);
 		fid->type = rc->qid.type;
 	}
 

@@ -51,6 +51,7 @@ static inline int
 buf_check_size(struct cbuf *buf, int len)
 {
 	if (buf->p+len > buf->ep) {
+		printf("buf_check_size: wanted %d got %ld\n", len, buf->ep - buf->p);
 		if (buf->p < buf->ep)
 			buf->p = buf->ep + 1;
 
@@ -898,6 +899,7 @@ np_create_twrite(u32 fid, u64 offset, u32 count, u8 *data)
 	if (!fc)
 		return NULL;
 
+	printf("@@@ TWRITE %d\n", fc->size);
 	buf_put_int32(bufp, fid, &fc->fid);
 	buf_put_int64(bufp, offset, &fc->offset);
 	buf_put_int32(bufp, count, &fc->count);
@@ -1607,6 +1609,45 @@ Npfcall *np_create_rreaddir(u32 count, u8 *data)
 	memmove(p, data, count);
 
 	return np_post_check(fc, bufp);
+}
+
+Npfcall *
+np_alloc_rreaddir(u32 count)
+{
+	int size;
+	Npfcall *fc;
+	struct cbuf buffer;
+	struct cbuf *bufp;
+	void *p;
+
+	bufp = &buffer;
+	size = 4 + count; /* count[4] data[count] */
+	fc = np_create_common(bufp, size, Rreaddir);
+	if (!fc)
+		return NULL;
+
+	buf_put_int32(bufp, count, &fc->count);
+	p = buf_alloc(bufp, count);
+	fc->data = p;
+
+	return np_post_check(fc, bufp);
+}
+
+void
+np_set_rreaddir_count(Npfcall *fc, u32 count)
+{
+	int size;
+	struct cbuf buffer;
+	struct cbuf *bufp;
+
+	assert(count <= fc->count);
+	bufp = &buffer;
+	size = 4 + 1 + 2 + 4 + count; /* size[4] id[1] tag[2] count[4] data[count] */
+
+	buf_init(bufp, (char *) fc->pkt, size);
+	buf_put_int32(bufp, size, &fc->size);
+	buf_init(bufp, (char *) fc->pkt + 7, size - 7);
+	buf_put_int32(bufp, count, &fc->count);
 }
 
 Npfcall *np_create_tfsync(u32 fid)

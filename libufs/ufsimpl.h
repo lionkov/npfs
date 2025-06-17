@@ -28,8 +28,7 @@ struct Fid {
 	int		omode;
 	int		fd;
 	DIR*		dir;
-	int		diroffset;
-	char*		direntname;
+//	int		diroffset;
 	struct stat	stat;
 
 	char*		xattrname;	// xattrcreate

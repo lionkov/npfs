@@ -170,7 +170,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Tauth:
-		ret += fprintf(f, "Tauth tag %u afid %d uname %.*s aname %.*s",
+		ret += fprintf(f, "Tauth tag %u afid %d uname '%.*s' aname '%.*s'",
 			tag, fc->afid, fc->uname.len, fc->uname.str, 
 			fc->aname.len, fc->aname.str);
 		break;
@@ -196,7 +196,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Rerror:
-		ret += fprintf(f, "Rerror tag %u ename %.*s", tag, 
+		ret += fprintf(f, "Rerror tag %u ename '%.*s'", tag, 
 			fc->ename.len, fc->ename.str);
 		if (dotu)
 			ret += fprintf(f, " ecode %d", fc->ecode);
@@ -236,12 +236,12 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 		
 	case Tcreate:
-		ret += fprintf(f, "Tcreate tag %u fid %d name %.*s perm ",
+		ret += fprintf(f, "Tcreate tag %u fid %d name '%.*s' perm ",
 			tag, fid, fc->name.len, fc->name.str);
 		ret += np_printperm(f, fc->perm);
 		ret += fprintf(f, " mode %d", fc->mode);
 		if (dotu)
-			ret += fprintf(f, " ext %.*s", fc->extension.len,
+			ret += fprintf(f, " ext '%.*s'", fc->extension.len,
 				fc->extension.str);
 		break;
 		
@@ -341,7 +341,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Tlcreate:
-		ret += fprintf(f, "Tlcreate tag %u fid %d name %.*s flags %d perm ",
+		ret += fprintf(f, "Tlcreate tag %u fid %d name '%.*s' flags %d perm ",
 			tag, fid, fc->name.len, fc->name.str, fc->flags);
 		ret += np_printperm(f, fc->perm);
 		ret += fprintf(f, " gid %d", fc->gid);
@@ -354,7 +354,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Tsymlink:
-		ret += fprintf(f, "Tsymlink tag %u fid %d name %.*s target %.*s gid %d",
+		ret += fprintf(f, "Tsymlink tag %u fid %d name '%.*s' target '%.*s' gid %d",
 			tag, fid, fc->name.len, fc->name.str, fc->symtgt.len,
 			fc->symtgt.str, fc->gid);
 		break;
@@ -365,7 +365,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Tmknod:
-		ret += fprintf(f, "Tmknod tag %u fid %d name %.*s perm ", tag,
+		ret += fprintf(f, "Tmknod tag %u fid %d name '%.*s' perm ", tag,
 			fc->fid, fc->name.len, fc->name.str);
 		ret += np_printperm(f, fc->perm);
 		ret += fprintf(f, " major %d minor %d gid %d", fc->major,
@@ -378,7 +378,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Trename:
-		ret += fprintf(f, "Trename tag %u fid %d dfid %d name %.*s",
+		ret += fprintf(f, "Trename tag %u fid %d dfid %d name '%.*s'",
 			tag, fc->fid, fc->dfid, fc->name.len, fc->name.str);
 		break;
 
@@ -391,7 +391,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Rreadlink:
-		ret += fprintf(f, "Rreadlink tag %u target %.*s", tag,
+		ret += fprintf(f, "Rreadlink tag %u target '%.*s'", tag,
 			fc->symtgt.len, fc->symtgt.str);
 		break;
 
@@ -427,7 +427,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Txattrwalk:
-		ret += fprintf(f, "Txattrwalk tag %u fid %d newfid %d name %.*s",
+		ret += fprintf(f, "Txattrwalk tag %u fid %d newfid %d name '%.*s'",
 			tag, fc->fid, fc->newfid, fc->name.len, fc->name.str);
 		break;
 
@@ -436,7 +436,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Txattrcreate:
-		ret += fprintf(f, "Txattrcreate tag %u fid %d name %.*s size %d flags %d",
+		ret += fprintf(f, "Txattrcreate tag %u fid %d name '%.*s' size %d flags %d",
 			tag, fc->fid, fc->name.len, fc->name.str, fc->size, fc->flags);
 		break;
 
@@ -462,7 +462,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Tlock:
-		ret += fprintf(f, "Tlock tag %u fid %d type %d flags %d offset %llu length %llu procid %d clientid %.*s",
+		ret += fprintf(f, "Tlock tag %u fid %d type %d flags %d offset %llu length %llu procid %d clientid '%.*s'",
 			tag, fc->fid, fc->locktype, fc->flags, fc->offset,
 			fc->locklength, fc->procid, fc->clientid.len, fc->clientid.str);
 		break;
@@ -472,19 +472,19 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Tgetlock:
-		ret += fprintf(f, "Tgetlock tag %u fid %d type %d offset %llu length %llu procid %d clientid %.*s",
+		ret += fprintf(f, "Tgetlock tag %u fid %d type %d offset %llu length %llu procid %d clientid '%.*s'",
 			tag, fc->fid, fc->locktype, fc->offset, fc->locklength,
 			fc->procid, fc->clientid.len, fc->clientid.str);
 		break;
 
 	case Rgetlock:
-		ret += fprintf(f, "Rgetlock tag %u fid %d type %d offset %llu length %llu procid %d clientid %.*s",
+		ret += fprintf(f, "Rgetlock tag %u fid %d type %d offset %llu length %llu procid %d clientid '%.*s'",
 			tag, fc->fid, fc->locktype, fc->offset, fc->locklength,
 			fc->procid, fc->clientid.len, fc->clientid.str);
 		break;
 
 	case Tlink:
-		ret += fprintf(f, "Tlink tag %u fid %d dfid %d name %.*s",
+		ret += fprintf(f, "Tlink tag %u fid %d dfid %d name '%.*s'",
 			tag, fc->fid, fc->dfid, fc->name.len, fc->name.str);
 		break;
 
@@ -493,7 +493,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Tmkdir:
-		ret += fprintf(f, "Tlink tag %u fid %d name %.*s perm ",
+		ret += fprintf(f, "Tlink tag %u fid %d name '%.*s' perm ",
 			tag, fc->fid, fc->name.len, fc->name.str);
 
 		ret += np_printperm(f, fc->perm);
@@ -506,7 +506,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Trenameat:
-		ret += fprintf(f, "Trenameat tag %u olddfid %d oldname %.*s newdfid %d newname %.*s",
+		ret += fprintf(f, "Trenameat tag %u olddfid %d oldname '%.*s' newdfid %d newname '%.*s'",
 			tag, fc->fid, fc->oname.len, fc->oname.str, 
 			fc->newfid, fc->name.len, fc->name.str);
 		break;
@@ -516,7 +516,7 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Tunlinkat:
-		ret += fprintf(f, "Tunlinkat tag %u fid %d name %.*s flags %d",
+		ret += fprintf(f, "Tunlinkat tag %u fid %d name '%.*s' flags %d",
 			tag, fc->fid, fc->name.len, fc->name.str, fc->flags);
 		break;
 

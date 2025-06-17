@@ -115,7 +115,7 @@ int ufs_checkpoint(Npsrv *srv, void **buf)
 	conn = srv->conns;	// there is only one connection
 	sz = 4 + 1 + 1 + 4;	// msize[4] dotu[1] dotl[1] nfids[4]
 	fidsz = 4 + 2 + 2 + 4 + 4;	// fid[4] omode[2] type[2] diroffset[4] uid[4]
-	fidsz += 2 + 4 + 4 + 2 + 2 + 4 + 8;	// path[s] omode[4] diroffset[4] direntname[s] xattrname[s] xattrflags[4] xattrsz[8]
+	fidsz += 2 + 4 + 2 + 4 + 8;	// path[s] omode[4] xattrname[s] xattrflags[4] xattrsz[8]
 
 	nfids = np_conn_list_fids(conn, &fids);
 	for(i = 0; i < nfids; i++) {
@@ -123,7 +123,6 @@ int ufs_checkpoint(Npsrv *srv, void **buf)
 		Fid *f = fid->aux;
 
 		sz += fidsz + strlen(f->path);
-		sz += (f->direntname != NULL)?strlen(f->direntname):0;
 		sz += (f->xattrname != NULL)?strlen(f->xattrname):0;
 		sz += f->xattrsz;
 	}
@@ -147,8 +146,7 @@ int ufs_checkpoint(Npsrv *srv, void **buf)
 
 		buf_put_str(&cbuf, f->path);
 		buf_put_int32(&cbuf, f->omode);
-		buf_put_int32(&cbuf, f->diroffset);
-		buf_put_str(&cbuf, f->direntname);
+//		buf_put_int32(&cbuf, f->diroffset);
 		buf_put_str(&cbuf, f->xattrname);
 		buf_put_int32(&cbuf, f->xattrflags);
 		buf_put_int64(&cbuf, f->xattrsz);
@@ -157,7 +155,7 @@ int ufs_checkpoint(Npsrv *srv, void **buf)
 			memmove(p, f->xattrdata, f->xattrsz);
 	}
 
-	if (!buf_check_overflow(&cbuf)) {
+	if (buf_check_overflow(&cbuf)) {
 		free(data);
 		return -1;
 	}
@@ -192,7 +190,7 @@ int ufs_restore(Npsrv *srv, void *buf, int sz, char *err, int errsz)
 
 		f = npfs_fidalloc();
 		fidno = buf_get_int32(&cbuf);
-		if (!buf_check_overflow(&cbuf))
+		if (buf_check_overflow(&cbuf))
 			break;
 
 		fid = np_fid_create(conn, fidno, f);
@@ -209,11 +207,13 @@ int ufs_restore(Npsrv *srv, void *buf, int sz, char *err, int errsz)
 		f->path = np_strdup(&str);
 
 		f->omode = buf_get_int32(&cbuf);
-		f->diroffset = buf_get_int32(&cbuf);
+//		f->diroffset = buf_get_int32(&cbuf);
 		buf_get_str(&cbuf, &str);
-		f->direntname = np_strdup(&str);
-		buf_get_str(&cbuf, &str);
-		f->xattrname = np_strdup(&str);
+		if (str.len == 0)
+			f->xattrname = NULL;
+		else
+			f->xattrname = np_strdup(&str);
+
 		f->xattrflags = buf_get_int32(&cbuf);
 		f->xattrsz = buf_get_int64(&cbuf);
 		f->xattrdata = malloc(f->xattrsz);
@@ -222,7 +222,7 @@ int ufs_restore(Npsrv *srv, void *buf, int sz, char *err, int errsz)
 			memmove(f->xattrdata, p, f->xattrsz);
 	}
 
-	if (!buf_check_overflow(&cbuf)) {
+	if (buf_check_overflow(&cbuf)) {
 		if (errsz > n)
 			n += snprintf(err, errsz - n, "Unexpected end of restore data\n");
 
@@ -249,18 +249,22 @@ int ufs_restore(Npsrv *srv, void *buf, int sz, char *err, int errsz)
 
 		if (fid->omode != Onotopen) {
 			if (S_ISDIR(f->stat.st_mode)) {
+				printf("\t%d open dir %s\n", fid->fid, f->path);
 				f->dir = opendir(f->path);
 				if (!f->dir) {
 					if (errsz > n)
 						n += snprintf(err, errsz - n, "Can't opendir file %s: %d\n", f->path, errno);
 				}
 			} else {
+				printf("\t%d open file '%s'\n", fid->fid, f->path);
 				f->fd = open(f->path, omode2uflags(fid->omode));
 				if (f->fd < 0)
 					if (errsz > n)
 						n += snprintf(err, errsz - n, "Can't open file %s: %d\n", f->path, errno);
 			}
 		}
+
+		np_fid_incref(fid);
 	}
 	free(fids);
 

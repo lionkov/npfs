@@ -409,9 +409,10 @@ np_process_request(Npreq *req)
 		if (rc)
 			free(rc);
 
-		if (conn->dotl)
+		if (conn->dotl) {
+			printf("Error %s\n", ename);
 			rc = np_create_rlerror(ecode);
-		else
+		} else
 			rc = np_create_rerror(ename, ecode, conn->dotu);
 	}
 
