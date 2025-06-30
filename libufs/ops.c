@@ -1718,7 +1718,6 @@ out:
 
 Npfcall* npfs_unlinkat(Npfid *dfid, Npstr *name)
 {
-	int flags;
 	Fid *f;
 	Npfcall *ret;
 	char *npath;
@@ -1739,13 +1738,16 @@ Npfcall* npfs_unlinkat(Npfid *dfid, Npstr *name)
 //		dfid->omode = Oread;
 	}
 
-	flags = 0;
-	if (f->stat.st_mode & S_IFDIR)
-		flags |= AT_REMOVEDIR;
-
-	if (unlinkat(f->fd, npath, flags) < 0) {
-		create_rerror(errno);
-		goto out;
+	if (unlinkat(f->fd, npath, 0) < 0) {
+		if (errno == EISDIR) {
+			if (unlinkat(f->fd, npath, AT_REMOVEDIR) < 0) {
+				create_rerror(errno);
+				goto out;
+			}
+		} else {
+			create_rerror(errno);
+			goto out;
+		}
 	}
 
 	ret = np_create_runlinkat();
