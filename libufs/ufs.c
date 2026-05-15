@@ -216,10 +216,13 @@ int ufs_restore(Npsrv *srv, void *buf, int sz, char *err, int errsz)
 
 		f->xattrflags = buf_get_int32(&cbuf);
 		f->xattrsz = buf_get_int64(&cbuf);
-		f->xattrdata = malloc(f->xattrsz);
 		p = buf_alloc(&cbuf, f->xattrsz);
-		if (p)
+		if (f->xattrsz > 0 && p) {
+			f->xattrdata = malloc(f->xattrsz);
 			memmove(f->xattrdata, p, f->xattrsz);
+		} else {
+			f->xattrdata = NULL;
+		}
 	}
 
 	if (buf_check_overflow(&cbuf)) {
@@ -256,8 +259,12 @@ int ufs_restore(Npsrv *srv, void *buf, int sz, char *err, int errsz)
 						n += snprintf(err, errsz - n, "Can't opendir file %s: %d\n", f->path, errno);
 				}
 			} else {
+				int flags;
+
 				printf("\t%d open file '%s'\n", fid->fid, f->path);
-				f->fd = open(f->path, omode2uflags(fid->omode));
+				flags = omode2uflags(fid->omode);
+				flags &= ~(O_TRUNC | O_EXCL);
+				f->fd = open(f->path, flags);
 				if (f->fd < 0)
 					if (errsz > n)
 						n += snprintf(err, errsz - n, "Can't open file %s: %d\n", f->path, errno);

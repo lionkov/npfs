@@ -1142,7 +1142,7 @@ Npfcall* npfs_symlink(Npfid *dfid, Npstr *name, Npstr *symtgt, u32 gid)
 		goto out;
 	}
 
-	if (stat(target, &st) < 0) {
+	if (lstat(npath, &st) < 0) {
 		create_rerror(errno);
 		goto out;
 	}
@@ -1196,15 +1196,16 @@ out:
 Npfcall* npfs_rename(Npfid *fid, Npfid *dfid, Npstr *name)
 {
 	int n, err;
-	Fid *f;
+	Fid *f, *df;
 	Npfcall *ret;
 	char *npath;
 
 	ret = NULL;
-	f = dfid->aux;
-	n = strlen(f->path);
+	f = fid->aux;
+	df = dfid->aux;
+	n = strlen(df->path);
 	npath = malloc(n + name->len + 2);
-	memmove(npath, f->path, n);
+	memmove(npath, df->path, n);
 	npath[n] = '/';
 	memmove(npath + n + 1, name->str, name->len);
 	npath[n + name->len + 1] = '\0';
@@ -1690,6 +1691,7 @@ out:
 
 Npfcall* npfs_renameat(Npfid *dfid, Npstr *oname, Npfid *newfid, Npstr *name)
 {
+	int n;
 	Fid *of, *nf;
 	Npfcall *ret;
 	char *opath, *npath;
@@ -1698,20 +1700,29 @@ Npfcall* npfs_renameat(Npfid *dfid, Npstr *oname, Npfid *newfid, Npstr *name)
 	of = dfid->aux;
 	nf = newfid->aux;
 
-	opath = malloc(oname->len + 1);
-	memmove(opath, oname->str, oname->len);
-	opath[oname->len] = '\0';
+	n = strlen(of->path);
+	opath = malloc(n + oname->len + 2);
+	memmove(opath, of->path, n);
+	opath[n] = '/';
+	memmove(opath + n + 1, oname->str, oname->len);
+	opath[n + oname->len + 1] = '\0';
 
-	npath = malloc(name->len + 1);
-	memmove(npath, name->str, name->len);
-	npath[name->len] = '\0';
+	n = strlen(nf->path);
+	npath = malloc(n + name->len + 2);
+	memmove(npath, nf->path, n);
+	npath[n] = '/';
+	memmove(npath + n + 1, name->str, name->len);
+	npath[n + name->len + 1] = '\0';
 
-	if (renameat(of->fd, opath, nf->fd, npath) < 0) {
+	if (rename(opath, npath) < 0) {
 		create_rerror(errno);
 		goto out;
 	}
 
+	ret = np_create_rrenameat();
+
 out:
+	free(opath);
 	free(npath);
 	return ret;
 }

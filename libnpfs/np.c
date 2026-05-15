@@ -1465,6 +1465,7 @@ Npfcall *np_create_tsetattr(u32 fid, u32 mask, Npattrs *attrs)
 	at = &fc->attrs;
 	buf_put_int32(bufp, fid, &fc->fid);
 	buf_put_int32(bufp, mask, NULL); fc->mask = mask;	/* fc->mask is u64 */
+	at->mask = mask;
 	buf_put_int32(bufp, attrs->mode, &at->mode);
 	buf_put_int32(bufp, attrs->uid, &at->uid);
 	buf_put_int32(bufp, attrs->gid, &at->gid);
@@ -2190,6 +2191,7 @@ np_deserialize(Npfcall *fc, u8 *data, int dotu)
 		attrs = &fc->attrs;
 		fc->fid = buf_get_int32(bufp);
 		fc->mask = buf_get_int32(bufp);
+		attrs->mask = fc->mask;
 		attrs->mode = buf_get_int32(bufp);
 		attrs->uid = buf_get_int32(bufp);
 		attrs->gid = buf_get_int32(bufp);

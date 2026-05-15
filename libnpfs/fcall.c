@@ -810,7 +810,7 @@ Npfcall *np_symlink(Npreq *req, Npfcall *tc)
 
 	rc = NULL;
 	conn = req->conn;
-	fid = np_fid_find(conn, tc->fid);
+	fid = np_fid_find(conn, tc->dfid);
 	if (!fid) {
 		np_werror(Eunknownfid, EIO);
 		goto done;
@@ -828,15 +828,7 @@ Npfcall *np_symlink(Npreq *req, Npfcall *tc)
 		goto done;
 	}
 
-	if (tc->perm&Dmdir && tc->mode!=Oread) {
-		np_werror(Eperm, EPERM);
-		goto done;
-	}
-
 	rc = (*conn->srv->symlink)(fid, &tc->name, &tc->symtgt, tc->gid);
-	if (rc && rc->type == Rsymlink) {
-		fid->type = rc->qid.type;
-	}
 
 done:
 	return rc;

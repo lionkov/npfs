@@ -354,8 +354,8 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Tsymlink:
-		ret += fprintf(f, "Tsymlink tag %u fid %d name '%.*s' target '%.*s' gid %d",
-			tag, fid, fc->name.len, fc->name.str, fc->symtgt.len,
+		ret += fprintf(f, "Tsymlink tag %u dfid %d name '%.*s' target '%.*s' gid %d",
+			tag, fc->dfid, fc->name.len, fc->name.str, fc->symtgt.len,
 			fc->symtgt.str, fc->gid);
 		break;
 
