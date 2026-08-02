@@ -410,7 +410,8 @@ np_process_request(Npreq *req)
 			free(rc);
 
 		if (conn->dotl) {
-			printf("Error %s\n", ename);
+			if (conn->srv->debuglevel)
+				fprintf(stderr, "Error %s\n", ename);
 			rc = np_create_rlerror(ecode);
 		} else
 			rc = np_create_rerror(ename, ecode, conn->dotu);
@@ -518,6 +519,8 @@ np_default_version(Npconn *conn, u32 msize, Npstr *version)
 	int dotu, dotl;
 	char *ver;
 	Npfcall *rc;
+
+	dotl = 0;
 
 	if (msize > conn->srv->msize)
 		msize = conn->srv->msize;

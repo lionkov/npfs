@@ -252,7 +252,6 @@ int ufs_restore(Npsrv *srv, void *buf, int sz, char *err, int errsz)
 
 		if (fid->omode != Onotopen) {
 			if (S_ISDIR(f->stat.st_mode)) {
-				printf("\t%d open dir %s\n", fid->fid, f->path);
 				f->dir = opendir(f->path);
 				if (!f->dir) {
 					if (errsz > n)
