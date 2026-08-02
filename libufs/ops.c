@@ -1068,7 +1068,7 @@ Npfcall* npfs_lopen(Npfid *fid, u32 flags)
 
 	// FIXME: do we need to keep the flags for anything?
 	ustat2qid(&f->stat, &qid);
-	return np_create_ropen(&qid, 0);
+	return np_create_rlopen(&qid, 0);
 }
 
 Npfcall* npfs_lcreate(Npfid *fid, Npstr *name, u32 flags, u32 perm, u32 gid)
