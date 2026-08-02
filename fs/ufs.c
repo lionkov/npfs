@@ -32,12 +32,12 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#if SYSNAME != Linux
+#ifdef SYSNAME_Linux
 #include <sys/sysmacros.h>
 #include <sys/vfs.h>
 #endif
 
-#if SYSNAME == Darwin
+#ifdef SYSNAME_Darwin
 #include <sys/param.h>
 #include <sys/mount.h>
 #endif
@@ -51,7 +51,7 @@
 #include "npfs.h"
 #include "ufs.h"
 
-#if SYSNAME == Linux
+#ifdef SYSNAME_Linux
 #define NPFS_USE_AIO
 #else
 #undef NPFS_USE_AIO
@@ -63,7 +63,7 @@
 
 // The differences between Linux and Darwin are small enough to solve them
 // with few defines...
-#if SYSNAME == Darwin
+#ifdef SYSNAME_Darwin
 
 #define STAT_MTIME(st) ((st)->st_mtimespec)
 #define STAT_ATIME(st) ((st)->st_atimespec)
@@ -81,9 +81,9 @@
 #define STAT_CTIME(st) ((st)->st_ctim)
 #define SETXATTR(path, name, val, valsz, flags) lsetxattr(path, name, val, valsz, flags)
 #define LISTXATTR(path, buf, bufsz) llistxattr(path, buf, bufsz)
-#define GETXATTR(path, name, val, valsz) lgetxattr(path, name, val, valsz, 0)
+#define GETXATTR(path, name, val, valsz) lgetxattr(path, name, val, valsz)
 #define DIRENT_OFF(d) ((d)->d_off)
-#define STATFS_NAMELEN(sf) ((sf)->f_namelen
+#define STATFS_NAMELEN(sf) ((sf)->f_namelen)
 
 #endif
 
