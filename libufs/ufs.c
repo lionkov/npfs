@@ -170,10 +170,23 @@ int ufs_checkpoint(Npsrv *srv, void **buf)
 
 	if (buf_check_overflow(&cbuf)) {
 		free(data);
-		return -1;
-	}
+		sz = -1;
+	} else
+		*buf = data;
 
-	*buf = data;
+	/* np_conn_list_fids increfs every fid it hands back, and this is its
+	 * only caller. Dropping the list without releasing those references
+	 * pins every fid in the pool forever: Tclunk reports success but the
+	 * refcount never reaches zero, so np_fid_destroy never runs and the
+	 * number stays in the hash table. The next Twalk that reuses a clunked
+	 * fid number - which Linux does constantly, its IDR always handing out
+	 * the lowest free id - then meets the corpse and is refused Einuse,
+	 * i.e. EIO. With a checkpoint taken after every request, as the
+	 * simulator integration does, that is every fid. */
+	for(i = 0; i < nfids; i++)
+		np_fid_decref(fids[i]);
+	free(fids);
+
 	return sz;
 }
 
@@ -273,7 +286,6 @@ int ufs_restore(Npsrv *srv, void *buf, int sz, char *err, int errsz)
 			} else {
 				int flags;
 
-				printf("\t%d open file '%s'\n", fid->fid, f->path);
 				flags = omode2uflags(fid->omode);
 				flags &= ~(O_TRUNC | O_EXCL);
 				f->fd = open(f->path, flags);
