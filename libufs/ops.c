@@ -418,6 +418,7 @@ npfs_attach(Npfid *nfid, Npfid *nafid, Npstr *uname, Npstr *aname)
 	memmove(path, rootdir, n);
 	path[n] = '/';
 	memmove(&path[n+1], aname->str, aname->len);
+	path[n + 1 + aname->len] = '\0';
 	fid->path = path;
 	nfid->aux = fid;
 	err = fidstat(fid);
