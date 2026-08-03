@@ -524,6 +524,10 @@ np_default_version(Npconn *conn, u32 msize, Npstr *version)
 
 	if (msize > conn->srv->msize)
 		msize = conn->srv->msize;
+	if (msize > conn->msize)
+		msize = conn->msize;	/* conn buffers are sized at creation;
+					 * advertising more would promise reads
+					 * and writes the reader cannot carry */
 
 	dotu = 0;
 	rc = NULL;

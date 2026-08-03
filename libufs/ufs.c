@@ -43,6 +43,16 @@
 
 Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int same_user, int port)
 {
+	return ufs_start_msize(rootdir, debuglevel, nwthreads, same_user, port, 0);
+}
+
+/* Like ufs_start, but with the server's msize set BEFORE the transport
+ * starts (msize 0 keeps the default). np_srv_start creates the connection,
+ * and a connection's buffers are sized from srv->msize at creation — an
+ * msize raised after ufs_start returns arrives too late to matter, and the
+ * negotiation would advertise a size the connection cannot carry. */
+Npsrv *ufs_start_msize(char *rootdir, int debuglevel, int nwthreads, int same_user, int port, int msize)
+{
 	Npsrv *srv;
 
 	if (port <= 0)
@@ -52,6 +62,9 @@ Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int same_user, in
 
 	if (!srv)
 		return NULL;
+
+	if (msize > 0)
+		srv->msize = msize;
 
 	srv->dotu = 1;
 	srv->dotl = 1;

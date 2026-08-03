@@ -27,6 +27,7 @@
  * of the pipes can be retrieved by calling ufs_get_fds
  */
 Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int sameuser, int port);
+Npsrv *ufs_start_msize(char *rootdir, int debuglevel, int nwthreads, int sameuser, int port, int msize);
 
 /* Returns the file descriptors used to send and receive data from the server */
 void ufs_get_fds(Npsrv *srv, int *rfd, int *wfd);
