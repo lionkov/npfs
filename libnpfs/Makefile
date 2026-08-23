@@ -29,7 +29,7 @@ LIBFILES=\
 	trans.o\
 	user.o\
 	uxusers.o\
-	mount-$(SYSNAME).o\
+	sys-$(SYSNAME).o\
 
 #ifeq ($(SYSNAME), Linux)
 #	LIBFILES += pipesrv.o

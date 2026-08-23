@@ -75,3 +75,6 @@ void np_req_free(Npreq *req);
 void np_srv_process_fcall(Npconn *conn, Npfcall *tc);
 int sreuid(int a, int b);
 int sregid(int a, int b);
+
+/* sys-$(SYSNAME).c */
+u32 np_errno_to_linux(u32 ecode);

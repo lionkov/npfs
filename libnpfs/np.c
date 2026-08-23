@@ -1102,6 +1102,7 @@ Npfcall *np_create_rlerror(u32 ecode)
 	struct cbuf *bufp;
 
 	bufp = &buffer;
+	ecode = np_errno_to_linux(ecode);
 
 	size = 4; /* ecode[4] */
 	fc = np_create_common(bufp, size, Rlerror);
