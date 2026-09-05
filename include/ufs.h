@@ -23,22 +23,20 @@
 
 /* Start the 9P2000.L server.
  * If port is positive, it will be a TCP server listening on that port.
- * Otherwise, it will a pipe server and the sending and receiving ends
- * of the pipes can be retrieved by calling ufs_get_fds
+ * Otherwise, a pipe server should be added with ufs_add_conn.
  */
-Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int sameuser, int port);
-Npsrv *ufs_start_msize(char *rootdir, int debuglevel, int nwthreads, int sameuser, int port, int msize);
+Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int sameuser, int msize);
 
-/* Returns the file descriptors used to send and receive data from the server */
-void ufs_get_fds(Npsrv *srv, int *rfd, int *wfd);
+/* Create a new connection, messages can be written to wfd and read from rfd */
+Npconn *ufs_connect(Npsrv *srv, int *rfd, int *wfd);
 
-/* Create a checkpoint of the server state.
+/* Create a checkpoint of the connection state.
  * Returns the size of the allocated data and a pointer to the buffer
- * that contains it
+ * that contains it.
  */
-int ufs_checkpoint(Npsrv *srv, void** buf);
+int ufs_checkpoint(Npconn *conn, void** buf);
 
-/* Restore the state of the server from the provided buffer.
- * Returns -1 if there is an error and what errors occured
+/* Restore the state of the connection from the provided buffer.
+ * Returns -1 if there is an error and what errors occured.
  */
-int ufs_restore(Npsrv *srv, void *buf, int sz, char *err, int errsz);
+int ufs_restore(Npconn *conn, void *buf, int sz, char *err, int errsz);

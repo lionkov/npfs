@@ -37,7 +37,6 @@ struct Fid {
 	u8*		xattrdata;
 };
 
-extern Npsrv *srv;
 extern int debuglevel;
 extern int sameuser;
 

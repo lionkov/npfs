@@ -163,7 +163,9 @@ np_srv_shutdown(Npsrv *srv, int shutconns)
 	conn = NULL;
 	pthread_mutex_lock(&srv->lock);
 	srv->shuttingdown = 1;
-	(*srv->shutdown)(srv);
+	if (srv->shutdown)
+		(*srv->shutdown)(srv);
+
 	if (shutconns) {
 		conn = srv->conns;
 		srv->conns = NULL;
@@ -237,7 +239,8 @@ np_srv_destroy(Npsrv *srv)
 		wt->shutdown = 1;
 	}
 	pthread_cond_broadcast(&srv->reqcond);
-	(*srv->destroy)(srv);
+	if (srv->destroy)
+		(*srv->destroy)(srv);
 }
 
 void

@@ -41,25 +41,11 @@
 
 #include "ufsimpl.h"
 
-Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int same_user, int port)
-{
-	return ufs_start_msize(rootdir, debuglevel, nwthreads, same_user, port, 0);
-}
-
-/* Like ufs_start, but with the server's msize set BEFORE the transport
- * starts (msize 0 keeps the default). np_srv_start creates the connection,
- * and a connection's buffers are sized from srv->msize at creation — an
- * msize raised after ufs_start returns arrives too late to matter, and the
- * negotiation would advertise a size the connection cannot carry. */
-Npsrv *ufs_start_msize(char *rootdir, int debuglevel, int nwthreads, int same_user, int port, int msize)
+Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int same_user, int msize)
 {
 	Npsrv *srv;
 
-	if (port <= 0)
-		srv = np_pipesrv_create(nwthreads);
-	else
-		srv = np_socksrv_create_tcp(nwthreads, &port);
-
+	srv = np_srv_create(nwthreads);
 	if (!srv)
 		return NULL;
 
@@ -111,21 +97,55 @@ Npsrv *ufs_start_msize(char *rootdir, int debuglevel, int nwthreads, int same_us
 	return srv;
 }
 
-void ufs_get_fds(Npsrv *srv, int *rfd, int *wfd)
+Npconn *ufs_connect(Npsrv *srv, int *rfd, int *wfd)
 {
-	return np_pipesrv_getfds(srv, rfd, wfd);
+	int pipin[2], pipout[2];
+	Nptrans *trans;
+	Npconn *conn;
+
+	if (pipe(pipin) < 0) {
+		fprintf(stderr, "cannot create a pipe: %d\n", errno);
+		return NULL;
+	}
+	if (pipe(pipout) < 0) {
+		fprintf(stderr, "cannot create a pipe: %d\n", errno);
+		close(pipin[0]);
+		close(pipin[1]);
+		return NULL;
+	}
+
+	/* The server reads pipin[0] and writes pipout[1]; the caller writes
+	 * pipin[1] and reads pipout[0]. Same orientation as pipesrv. */
+	trans = np_fdtrans_create(pipin[0], pipout[1]);
+	if (!trans) {
+		close(pipin[0]); close(pipin[1]);
+		close(pipout[0]); close(pipout[1]);
+		return NULL;
+	}
+
+	/* np_conn_create already registers the connection with the server
+	 * (np_srv_add_conn) and starts its reader, so adding it again here
+	 * would list it twice. */
+	conn = np_conn_create(srv, trans);
+	if (!conn) {
+		np_trans_destroy(trans);
+		close(pipin[1]); close(pipout[0]);
+		return NULL;
+	}
+
+	*rfd = pipout[0];
+	*wfd = pipin[1];
+	return conn;
 }
 
-int ufs_checkpoint(Npsrv *srv, void **buf)
+int ufs_checkpoint(Npconn *conn, void **buf)
 {
 	int i, sz, nfids;
 	int fidsz;
-	Npconn *conn;
 	Npfid **fids;
 	char *data, *p;
 	struct cbuf cbuf;
 
-	conn = srv->conns;	// there is only one connection
 	sz = 4 + 1 + 1 + 4;	// msize[4] dotu[1] dotl[1] nfids[4]
 	fidsz = 4 + 2 + 2 + 4 + 4;	// fid[4] omode[2] type[2] diroffset[4] uid[4]
 	fidsz += 2 + 4 + 2 + 4 + 8;	// path[s] omode[4] xattrname[s] xattrflags[4] xattrsz[8]
@@ -190,18 +210,18 @@ int ufs_checkpoint(Npsrv *srv, void **buf)
 	return sz;
 }
 
-int ufs_restore(Npsrv *srv, void *buf, int sz, char *err, int errsz)
+int ufs_restore(Npconn *conn, void *buf, int sz, char *err, int errsz)
 {
 	int i, n, nfids, errval;
-	Npconn *conn;
 	Npfid **fids;
 	char *p;
 	uid_t uid;
 	struct cbuf cbuf;
 	Npstr str;
+	Npsrv *srv;
 
+	srv = conn->srv;
 	n = 0;
-	conn = srv->conns;	// there is only one connection
 	buf_init(&cbuf, buf, sz);
 	conn->msize = buf_get_int32(&cbuf);
 	conn->dotu = buf_get_int8(&cbuf);
