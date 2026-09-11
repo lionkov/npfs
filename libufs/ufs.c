@@ -30,6 +30,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <errno.h>
+#include <assert.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <string.h>
@@ -154,6 +155,15 @@ int ufs_checkpoint(Npconn *conn, void **buf)
 	for(i = 0; i < nfids; i++) {
 		Npfid *fid = fids[i];
 		Fid *f = fid->aux;
+
+		/* A fid the pool hands out is fully constructed: the handler that
+		 * created it set both the per-connection state and the user, and
+		 * a handler that could not finish destroyed the fid rather than
+		 * leaving it published. Serializing one that is not would write a
+		 * record no restore can read, so fail here where the state is in
+		 * hand rather than dereference past it. */
+		assert(f != NULL);
+		assert(fid->user != NULL);
 
 		sz += fidsz + strlen(f->path);
 		sz += (f->xattrname != NULL)?strlen(f->xattrname):0;

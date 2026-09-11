@@ -985,17 +985,37 @@ Npfcall *np_xattrwalk(Npreq *req, Npfcall *tc)
 		np_fid_incref(fid);
 
 	req->fid = fid;
+	newfid = np_fid_find(conn, tc->newfid);
+	if (newfid) {
+		np_werror(Einuse, EIO);
+		goto done;
+	}
+
 	newfid = np_fid_create(conn, tc->newfid, NULL);
 	if (!newfid) {
 		np_werror(Ennomem, ENOMEM);
 		goto done;
 	}
+
+	/* An attribute fid names the attributes of the fid it was walked from,
+	 * so it acts for that fid's user. Every fid the pool holds carries one:
+	 * np_fid_create publishes the fid before the user is known, and code
+	 * that walks the pool - serialization, authorization - reads the user
+	 * without asking whether it is there. */
+	np_user_incref(fid->user);
+	newfid->user = fid->user;
+
+	/* One reference for the duration of this request, so that a refusal
+	 * reaches zero and destroys the fid. np_fid_create has already put it
+	 * in the pool, and np_fid_destroy is what takes it back out; decref
+	 * from zero merely goes negative and leaves it there forever. The
+	 * reference the client holds on a successful walk is the one the
+	 * xattrwalk operation itself takes. */
+	np_fid_incref(newfid);
 	rc = (*conn->srv->xattrwalk)(fid, newfid, &tc->name);
-	if (rc && rc->type == Rxattrwalk) {
+	if (rc && rc->type == Rxattrwalk)
 		newfid->type = Ftxattr;
-	} else {
-		np_fid_decref(newfid);
-	}
+	np_fid_decref(newfid);
 
 done:
 	return rc;
@@ -1029,12 +1049,16 @@ Npfcall *np_xattrcreate(Npreq *req, Npfcall *tc)
 		goto done;
 	}
 
+	/* As in np_xattrwalk: the user the new fid acts for, and a reference
+	 * held across the operation so that a refusal destroys it. */
+	np_user_incref(fid->user);
+	newfid->user = fid->user;
+
+	np_fid_incref(newfid);
 	rc = (*conn->srv->xattrcreate)(fid, newfid, &tc->name, tc->asize, tc->flags);
-	if (rc && rc->type == Rxattrcreate) {
+	if (rc && rc->type == Rxattrcreate)
 		newfid->type = Ftxattr;
-	} else {
-		np_fid_decref(newfid);
-	}
+	np_fid_decref(newfid);
 
 done:
 	return rc;
