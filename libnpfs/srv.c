@@ -63,7 +63,10 @@ static Npfcall* np_default_readlink(Npfid *fid);
 static Npfcall* np_default_getattr(Npfid *fid, u64 mask);
 static Npfcall* np_default_setattr(Npfid *fid, Npattrs *attrs);
 static Npfcall* np_default_xattrwalk(Npfid *fid, Npfid *newfid, Npstr *name);
-static Npfcall* np_default_xattrcreate(Npfid *fid, Npfid *newfid, Npstr *name, u32 size, u32 flags);
+static Npfcall* np_default_xattrcreate(Npfid *fid, Npstr *name, u64 size, u32 flags);
+static Npfcall* np_default_xattrread(Npfid *fid, u64 offset, u32 count, Npreq *req);
+static Npfcall* np_default_xattrwrite(Npfid *fid, u64 offset, u32 count, u8 *data,
+	Npreq *req);
 static Npfcall* np_default_readdir(Npfid *dfid, u64 offset, u32 count, Npreq *req);
 static Npfcall* np_default_fsync(Npfid *fid);
 static Npfcall* np_default_flock(Npfid *fid, u8 type, u32 flags, u64 offset, u64 length, u32 procid, Npstr *clientid);
@@ -123,6 +126,8 @@ np_srv_create(int nwthread)
 	srv->setattr = np_default_setattr;
 	srv->xattrwalk = np_default_xattrwalk;
 	srv->xattrcreate = np_default_xattrcreate;
+	srv->xattrread = np_default_xattrread;
+	srv->xattrwrite = np_default_xattrwrite;
 	srv->readdir = np_default_readdir;
 	srv->fsync = np_default_fsync;
 	srv->flock = np_default_flock;
@@ -688,7 +693,18 @@ static Npfcall* np_default_xattrwalk(Npfid *fid, Npfid *newfid, Npstr *name){
 	return NULL;
 }
 
-static Npfcall* np_default_xattrcreate(Npfid *fid, Npfid *newfid, Npstr *name, u32 size, u32 flags){
+static Npfcall* np_default_xattrcreate(Npfid *fid, Npstr *name, u64 size, u32 flags){
+	np_werror(Enotimpl, ENOSYS);
+	return NULL;
+}
+
+static Npfcall* np_default_xattrread(Npfid *fid, u64 offset, u32 count, Npreq *req){
+	np_werror(Enotimpl, ENOSYS);
+	return NULL;
+}
+
+static Npfcall* np_default_xattrwrite(Npfid *fid, u64 offset, u32 count, u8 *data,
+	Npreq *req){
 	np_werror(Enotimpl, ENOSYS);
 	return NULL;
 }

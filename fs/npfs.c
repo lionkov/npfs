@@ -118,6 +118,8 @@ main(int argc, char **argv)
 	srv->setattr = npfs_setattr;
 	srv->xattrwalk = npfs_xattrwalk;
 	srv->xattrcreate = npfs_xattrcreate;
+	srv->xattrread = npfs_xattrread;
+	srv->xattrwrite = npfs_xattrwrite;
 	srv->readdir = npfs_readdir;
 	srv->fsync = npfs_fsync;
 	srv->flock = npfs_flock;

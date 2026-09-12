@@ -417,7 +417,7 @@ struct Npfcall {
 	u32		dfid;			/* Tsymlink, Tmknod, Trename, Tlink */
 	u64		mask;			/* Tgetattr */
 	Npattrs		attrs;			/* Rgetattr */
-	u64		asize;			/* Rxattrwalk, TXattrcreate */
+	u64		asize;			/* Rxattrwalk, Txattrcreate */
 	u8		locktype;		/* Tlock, Tgetlock, Rgetlock */
 	u64		locklength;		/* Tlock, Tgetlock, Rgetlock */
 	u32		procid;			/* Tlock, Tgetlock, Rgetlock */
@@ -567,7 +567,7 @@ struct Npsrv {
 	Npfcall*	(*getattr)(Npfid *fid, u64 mask);
 	Npfcall*	(*setattr)(Npfid *fid, Npattrs *attrs);
 	Npfcall*	(*xattrwalk)(Npfid *fid, Npfid *newfid, Npstr *name);
-	Npfcall*	(*xattrcreate)(Npfid *fid, Npfid *newfid, Npstr *name, u32 size, u32 flags);
+	Npfcall*	(*xattrcreate)(Npfid *fid, Npstr *name, u64 size, u32 flags);
 	Npfcall*	(*readdir)(Npfid *dfid, u64 offset, u32 count, Npreq *req);
 	Npfcall*	(*fsync)(Npfid *fid);
 	Npfcall*	(*flock)(Npfid *fid, u8 type, u32 flags, u64 offset, u64 length, u32 procid, Npstr *clientid);

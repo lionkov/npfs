@@ -1024,7 +1024,7 @@ done:
 Npfcall *np_xattrcreate(Npreq *req, Npfcall *tc)
 {
 	Npconn *conn;
-	Npfid *fid, *newfid;
+	Npfid *fid;
 	Npfcall *rc;
 
 	rc = NULL;
@@ -1038,27 +1038,18 @@ Npfcall *np_xattrcreate(Npreq *req, Npfcall *tc)
 
 	req->fid = fid;
 
-	newfid = np_fid_find(conn, tc->newfid);
-	if (newfid) {
-		np_werror(Einuse, EIO);
-		goto done;
-	}
-	newfid = np_fid_create(conn, tc->newfid, NULL);
-	if (!newfid) {
-		np_werror(Ennomem, ENOMEM);
+	/* Txattrcreate carries one fid and converts it into a write handle
+	 * for a single attribute: Twrite fills the value, Tclunk commits it.
+	 * Unlike Txattrwalk there is no second fid, so a fid already
+	 * converted cannot be converted again. */
+	if (fid->type & Ftxattr) {
+		np_werror(Ebadusefid, EIO);
 		goto done;
 	}
 
-	/* As in np_xattrwalk: the user the new fid acts for, and a reference
-	 * held across the operation so that a refusal destroys it. */
-	np_user_incref(fid->user);
-	newfid->user = fid->user;
-
-	np_fid_incref(newfid);
-	rc = (*conn->srv->xattrcreate)(fid, newfid, &tc->name, tc->asize, tc->flags);
+	rc = (*conn->srv->xattrcreate)(fid, &tc->name, tc->asize, tc->flags);
 	if (rc && rc->type == Rxattrcreate)
-		newfid->type = Ftxattr;
-	np_fid_decref(newfid);
+		fid->type |= Ftxattr;
 
 done:
 	return rc;

@@ -432,12 +432,14 @@ np_printfcall(FILE *f, Npfcall *fc, int dotu, int dotl)
 		break;
 
 	case Rxattrwalk:
-		ret += fprintf(f, "Rxattrwalk tag %u size %d", tag, fc->size);
+		ret += fprintf(f, "Rxattrwalk tag %u size %llu", tag,
+			(unsigned long long)fc->asize);
 		break;
 
 	case Txattrcreate:
-		ret += fprintf(f, "Txattrcreate tag %u fid %d name '%.*s' size %d flags %d",
-			tag, fc->fid, fc->name.len, fc->name.str, fc->size, fc->flags);
+		ret += fprintf(f, "Txattrcreate tag %u fid %d name '%.*s' size %llu flags %d",
+			tag, fc->fid, fc->name.len, fc->name.str,
+			(unsigned long long)fc->asize, fc->flags);
 		break;
 
 	case Rxattrcreate:

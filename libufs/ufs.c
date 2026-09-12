@@ -80,6 +80,8 @@ Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int same_user, in
 	srv->setattr = npfs_setattr;
 	srv->xattrwalk = npfs_xattrwalk;
 	srv->xattrcreate = npfs_xattrcreate;
+	srv->xattrread = npfs_xattrread;
+	srv->xattrwrite = npfs_xattrwrite;
 	srv->readdir = npfs_readdir;
 	srv->fsync = npfs_fsync;
 	srv->flock = npfs_flock;
@@ -273,9 +275,12 @@ int ufs_restore(Npconn *conn, void *buf, int sz, char *err, int errsz)
 		f->xattrflags = buf_get_int32(&cbuf);
 		f->xattrsz = buf_get_int64(&cbuf);
 		p = buf_alloc(&cbuf, f->xattrsz);
-		if (f->xattrsz > 0 && p) {
-			f->xattrdata = malloc(f->xattrsz);
-			memmove(f->xattrdata, p, f->xattrsz);
+		if (fid->type & Ftxattr) {
+			/* Non-NULL for a zero-length value too: it is what
+			 * marks the fid as holding an attribute. */
+			f->xattrdata = malloc(f->xattrsz? f->xattrsz: 1);
+			if (f->xattrsz > 0 && p)
+				memmove(f->xattrdata, p, f->xattrsz);
 		} else {
 			f->xattrdata = NULL;
 		}

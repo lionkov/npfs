@@ -2213,13 +2213,13 @@ np_deserialize(Npfcall *fc, u8 *data, int dotu)
 		break;
 
 	case Rxattrwalk:
-		fc->size = buf_get_int64(bufp);
+		fc->asize = buf_get_int64(bufp);
 		break;
 
 	case Txattrcreate:
 		fc->fid = buf_get_int32(bufp);
 		buf_get_str(bufp, &fc->name);
-		fc->size = buf_get_int64(bufp);
+		fc->asize = buf_get_int64(bufp);
 		fc->flags = buf_get_int32(bufp);
 		break;
 

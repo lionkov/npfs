@@ -71,6 +71,7 @@
 #define SETXATTR(path, name, val, valsz, flags) setxattr(path, name, val, valsz, 0, flags)
 #define LISTXATTR(path, buf, bufsz) listxattr(path, buf, bufsz, 0)
 #define GETXATTR(path, name, val, valsz) getxattr(path, name, val, valsz, 0, 0)
+#define REMOVEXATTR(path, name) removexattr(path, name, 0)
 #define DIRENT_OFF(d) ((d)->d_seekoff)
 #define STATFS_NAMELEN(sf) 0
 
@@ -82,6 +83,7 @@
 #define SETXATTR(path, name, val, valsz, flags) lsetxattr(path, name, val, valsz, flags)
 #define LISTXATTR(path, buf, bufsz) llistxattr(path, buf, bufsz)
 #define GETXATTR(path, name, val, valsz) lgetxattr(path, name, val, valsz)
+#define REMOVEXATTR(path, name) lremovexattr(path, name)
 #define DIRENT_OFF(d) ((d)->d_off)
 #define STATFS_NAMELEN(sf) ((sf)->f_namelen)
 
@@ -820,15 +822,7 @@ npfs_read(Npfid *fid, u64 offset, u32 count, Npreq *req)
 	f = fid->aux;
 	ret = np_alloc_rread(count);
 	npfs_set_user(fid->user);
-	if (f->xattrdata) {
-		n = count;
-		if (offset > f->xattrsz)
-			n = 0;
-		else if (offset + count > f->xattrsz)
-			n = f->xattrsz - offset;
-
-		memmove(ret->data, f->xattrdata+offset, n);
-	} else if (f->dir) {
+	if (f->dir) {
 		n = npfs_read_dir(fid, ret->data, offset, count, fid->conn->dotu);
 	} else {
 		if (use_aio) {
@@ -862,27 +856,17 @@ npfs_write(Npfid *fid, u64 offset, u32 count, u8 *data, Npreq *req)
 	f = fid->aux;
 	npfs_set_user(fid->user);
 
-	if (f->xattrdata) {
-		n = count;
-		if (offset > f->xattrsz)
-			n = 0;
-		else if (offset + count > f->xattrsz)
-			n = f->xattrsz - offset;
+	if (use_aio) {
+		n = npfs_aio_write(fid, data, offset, count, req);
+//		fprintf(stderr, "$$ %d\n", n);
+		if (n >= 0)
+			return NULL;
+	}
 
-		memmove(f->xattrdata+offset, data, n);
-	} else {
-		if (use_aio) {
-			n = npfs_aio_write(fid, data, offset, count, req);
-//			fprintf(stderr, "$$ %d\n", n);
-			if (n >= 0)
-				return NULL;
-		}
-
-		n = pwrite(f->fd, data, count, offset);
-		if (n < 0) {
-			create_rerror(errno);
-			goto out;
-		}
+	n = pwrite(f->fd, data, count, offset);
+	if (n < 0) {
+		create_rerror(errno);
+		goto out;
 	}
 
 	ret = np_create_rwrite(n);
@@ -891,18 +875,81 @@ out:
 	return ret;
 }
 
+/* The attribute value a Txattrwalk fetched or a Txattrcreate is filling
+ * lives in the fid until it is clunked, so neither of these touches the
+ * filesystem: the value moves on Txattrwalk and on Tclunk, never here.
+ * A transfer outside the declared size is short rather than an error;
+ * that is how the client learns the size it named is the whole value. */
+Npfcall*
+npfs_xattrread(Npfid *fid, u64 offset, u32 count, Npreq *req)
+{
+	u32 n;
+	Fid *f;
+	Npfcall *ret;
+
+	f = fid->aux;
+	if (offset >= f->xattrsz)
+		n = 0;
+	else if (offset + count > f->xattrsz)
+		n = f->xattrsz - offset;
+	else
+		n = count;
+
+	ret = np_alloc_rread(count);
+	if (!ret) {
+		create_rerror(ENOMEM);
+		return NULL;
+	}
+
+	if (n > 0)
+		memmove(ret->data, f->xattrdata + offset, n);
+
+	np_set_rread_count(ret, n);
+
+	return ret;
+}
+
+Npfcall*
+npfs_xattrwrite(Npfid *fid, u64 offset, u32 count, u8 *data, Npreq *req)
+{
+	u32 n;
+	Fid *f;
+
+	f = fid->aux;
+	if (offset >= f->xattrsz)
+		n = 0;
+	else if (offset + count > f->xattrsz)
+		n = f->xattrsz - offset;
+	else
+		n = count;
+
+	if (n > 0)
+		memmove(f->xattrdata + offset, data, n);
+
+	return np_create_rwrite(n);
+}
+
 Npfcall*
 npfs_clunk(Npfid *fid)
 {
+	int n;
 	Fid *f;
 	Npfcall *ret;
 
 	ret = NULL;
 	f = fid->aux;
 	if (f!= NULL && f->xattrname) {
+		npfs_set_user(fid->user);
 		if ((fid->omode&3) != Oread) {
-			// an xattr was created, store it
-			if (SETXATTR(f->path, f->xattrname, f->xattrdata, f->xattrsz, f->xattrflags) < 0) {
+			/* The clunk is where a created attribute reaches the
+			 * file. A zero-length value is the client asking for
+			 * the attribute to be removed, not for it to be set
+			 * empty - that is how 9P2000.L carries removexattr. */
+			n = f->xattrsz
+				? SETXATTR(f->path, f->xattrname, f->xattrdata,
+					f->xattrsz, f->xattrflags)
+				: REMOVEXATTR(f->path, f->xattrname);
+			if (n < 0) {
 				create_rerror(errno);
 				goto out;
 			}
@@ -1514,6 +1561,7 @@ Npfcall* npfs_xattrwalk(Npfid *fid, Npfid *newfid, Npstr *name)
 	if (!npfs_check_regular(f))
 		goto out;
 
+	npfs_set_user(fid->user);
 	nf = npfs_fidalloc();
 	nf->path = strdup(f->path);
 	newfid->aux = nf;
@@ -1566,9 +1614,11 @@ out:
 	return ret;
 }
 
-Npfcall* npfs_xattrcreate(Npfid *fid, Npfid *newfid, Npstr *name, u32 size, u32 flags)
+Npfcall* npfs_xattrcreate(Npfid *fid, Npstr *name, u64 size, u32 flags)
 {
-	Fid *f, *nf;
+	Fid *f;
+	char *xname;
+	u8 *xdata;
 	Npfcall *ret;
 
 	ret = NULL;
@@ -1576,14 +1626,24 @@ Npfcall* npfs_xattrcreate(Npfid *fid, Npfid *newfid, Npstr *name, u32 size, u32 
 	if (!npfs_check_regular(f))
 		goto out;
 
-	nf = newfid->aux;
-	nf->xattrname = np_strdup(name);
-	nf->xattrflags = flags;
-	nf->xattrsz = size;
-	nf->xattrdata = malloc(size);
-	newfid->omode = Owrite;
+	/* xattrdata is what marks the fid as holding an attribute value, so
+	 * it stays non-NULL for a zero-length one. Both allocations succeed
+	 * before the fid is converted; a refusal leaves it a plain file. */
+	xname = np_strdup(name);
+	xdata = malloc(size? size: 1);
+	if (!xname || !xdata) {
+		free(xname);
+		free(xdata);
+		create_rerror(ENOMEM);
+		goto out;
+	}
 
-	np_fid_incref(newfid);
+	f->xattrname = xname;
+	f->xattrflags = flags;
+	f->xattrsz = size;
+	f->xattrdata = xdata;
+	fid->omode = Owrite;
+
 	ret = np_create_rxattrcreate();
 
 out:
