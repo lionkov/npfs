@@ -508,6 +508,10 @@ struct Npreq {
 struct Npwthread {
 	Npsrv*		srv;
 	int		shutdown;
+	/* 0 before the thread has taken its root, 1 once it holds it, and
+	 * negative if it could not: a thread that was asked to serve from
+	 * a tree it cannot enter serves nothing. */
+	int		confined;
 	pthread_t	thread;
 
 	Npwthread	*next;
@@ -584,6 +588,13 @@ struct Npsrv {
 	/* implementation specific */
 	pthread_mutex_t	lock;
 	pthread_cond_t	reqcond;
+	/* The directory the worker threads serve from, or NULL. Set by
+	 * np_srv_confine before the server starts; confcond carries each
+	 * thread's answer back to it, and confineerr the first failure. */
+	char*		confine;
+	pthread_cond_t	confcond;
+	int		nconfined;
+	int		confineerr;
 	int		shuttingdown;
 	Npconn*		conns;
 	int		nwthread;
@@ -709,8 +720,29 @@ extern char *Eexist;
 extern char *Enotempty;
 extern char *Eunknownuser;
 extern Npuserpool *np_default_users;
+/* A pool with no name service behind it: an id names itself and a name
+ * names itself. A server that reports ids numerically and never adopts
+ * a user's identity needs nothing more, and unlike np_default_users it
+ * cannot be cut off from its answers by the tree it is serving. */
+extern Npuserpool *np_simpl_users;
 
 Npsrv *np_srv_create(int nwthread);
+/* Give every worker thread `path` as its root directory, so that no
+ * name a client sends can resolve outside it: ".." at the top is the
+ * top, and a symlink cannot leave whether its target is absolute or
+ * relative. The kernel enforces this, so no operation pays for a check,
+ * and the tree is contained however the backend builds its paths.
+ *
+ * Only the worker threads are confined, never the whole process: the
+ * rest of it keeps the paths it was started with, which is what lets a
+ * program serve a tree and still write its own files elsewhere.
+ *
+ * Confinement needs the privilege to chroot. A server that was asked
+ * for it and could not have it serves nothing -- uncontained is not a
+ * fallback. Returns 0, or -1 with errno set, and must be called before
+ * np_srv_start.
+ */
+int np_srv_confine(Npsrv *srv, char *path);
 void np_srv_remove_conn(Npsrv *, Npconn *);
 void np_srv_start(Npsrv *);
 void np_srv_shutdown(Npsrv *, int wait);

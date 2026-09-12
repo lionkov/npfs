@@ -23,6 +23,7 @@ LIBFILES=\
 	fmt.o\
 	np.o\
 	pvusers.o\
+	simpleusers.o\
 	socksrv.o\
 	pipesrv.o\
 	srv.o\

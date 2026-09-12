@@ -20,11 +20,16 @@
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
 #include <assert.h>
+#include <unistd.h>
+#ifdef SYSNAME_Linux
+#include <sched.h>
+#endif
 #include "npfs.h"
 #include "npfsimpl.h"
 
@@ -38,6 +43,7 @@ static void np_wthread_create(Npsrv *srv);
 static void np_srv_destroy(Npsrv *srv);
 static void np_wthread_create(Npsrv *srv);
 static void *np_wthread_proc(void *a);
+static int np_wthread_confine(char *path);
 
 static Npfcall* np_default_version(Npconn *, u32, Npstr *);
 static Npfcall* np_default_attach(Npfid *, Npfid *, Npstr *, Npstr *);
@@ -146,6 +152,10 @@ np_srv_create(int nwthread)
 	srv->wthreads = NULL;
 	srv->debuglevel = 0;
 	srv->nwthread = nwthread;
+	srv->confine = NULL;
+	srv->nconfined = 0;
+	srv->confineerr = 0;
+	pthread_cond_init(&srv->confcond, NULL);
 
 	for(i = 0; i < nwthread; i++)
 		np_wthread_create(srv);
@@ -158,6 +168,69 @@ np_srv_start(Npsrv *srv)
 {
 	if (srv->start)
 		(*srv->start)(srv);
+}
+
+int
+np_srv_confine(Npsrv *srv, char *path)
+{
+	int n, ret;
+	Npwthread *wt;
+
+	ret = 0;
+	pthread_mutex_lock(&srv->lock);
+	srv->confine = path;
+
+	/* The threads are alive and idle: no request can reach one before
+	 * the server starts, so waking them here takes their roots while
+	 * there is still nothing to serve. Count the list rather than
+	 * nwthread, which is what was asked for -- a thread that failed to
+	 * start is not in it and will never answer. */
+	n = 0;
+	for(wt = srv->wthreads; wt != NULL; wt = wt->next)
+		n++;
+
+	pthread_cond_broadcast(&srv->reqcond);
+	while (srv->nconfined < n)
+		pthread_cond_wait(&srv->confcond, &srv->lock);
+
+	if (srv->confineerr) {
+		errno = srv->confineerr;
+		ret = -1;
+	}
+	pthread_mutex_unlock(&srv->lock);
+
+	return ret;
+}
+
+/* Take `path` as this thread's root. Returns 1 on success, -1 with
+ * errno set otherwise. */
+static int
+np_wthread_confine(char *path)
+{
+#ifdef SYSNAME_Linux
+	/* A thread's root and working directory live in state that threads
+	 * share by default. Detaching this thread's copy is what lets it be
+	 * confined while the rest of the process keeps its own paths. */
+	if (unshare(CLONE_FS) < 0)
+		return -1;
+
+	if (chroot(path) < 0)
+		return -1;
+
+	/* chroot moves the root, not the working directory, and a cwd left
+	 * outside the new root is itself a way back out. */
+	if (chdir("/") < 0)
+		return -1;
+
+	return 1;
+#else
+	/* Elsewhere a thread has no root of its own, so chroot would move
+	 * the whole process and break every path its caller still holds. */
+	(void) path;
+	errno = ENOSYS;
+
+	return -1;
+#endif
 }
 
 void
@@ -308,6 +381,7 @@ np_wthread_create(Npsrv *srv)
 	wt = malloc(sizeof(*wt));
 	wt->srv = srv;
 	wt->shutdown = 0;
+	wt->confined = 0;
 	err = pthread_create(&wt->thread, NULL, np_wthread_proc, wt);
 	if (err) {
 		fprintf(stderr, "can't create thread: %d\n", err);
@@ -442,6 +516,22 @@ np_wthread_proc(void *a)
 
 	pthread_mutex_lock(&srv->lock);
 	while (!wt->shutdown) {
+		if (srv->confine && !wt->confined) {
+			wt->confined = np_wthread_confine(srv->confine);
+			if (wt->confined < 0 && !srv->confineerr)
+				srv->confineerr = errno;
+			srv->nconfined++;
+			pthread_cond_broadcast(&srv->confcond);
+		}
+
+		/* Serving from outside the tree is not a lesser answer than
+		 * serving from inside it, so a thread that could not take its
+		 * root takes no requests either. */
+		if (srv->confine && wt->confined != 1) {
+			pthread_cond_wait(&srv->reqcond, &srv->lock);
+			continue;
+		}
+
 		req = srv->reqs_first;
 		if (!req) {
 			pthread_cond_wait(&srv->reqcond, &srv->lock);

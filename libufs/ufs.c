@@ -42,7 +42,8 @@
 
 #include "ufsimpl.h"
 
-Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int same_user, int msize)
+Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int same_user,
+	int msize, int confine)
 {
 	Npsrv *srv;
 
@@ -55,7 +56,16 @@ Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int same_user, in
 
 	srv->dotu = 1;
 	srv->dotl = 1;
-	srv->treeaux = rootdir;
+	/* Once the threads are confined the tree root is the root, so the
+	 * paths the backend builds start there and the kernel is what keeps
+	 * them there. rootdir is then the caller's to free. */
+	if (confine) {
+		if (np_srv_confine(srv, rootdir) < 0)
+			return NULL;
+
+		srv->treeaux = "/";
+	} else
+		srv->treeaux = rootdir;
 	srv->attach = npfs_attach;
 	srv->clone = npfs_clone;
 	srv->walk = npfs_walk;

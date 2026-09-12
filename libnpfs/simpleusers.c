@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include "npfs.h"
 #include "npfsimpl.h"
 
@@ -48,7 +49,40 @@ np_simpl_uname2user(Npuserpool *up, char *uname)
 static Npuser *
 np_simpl_uid2user(Npuserpool *up, u32 uid)
 {
-	return NULL;
+	Npuser *u;
+	char uname[32];
+
+	/* No name service stands behind this pool, so an id names itself.
+	 * 9P2000.L carries ids numerically and a server that reports them
+	 * that way needs no other answer. Entries the name side made carry
+	 * no id, so they cannot answer here and are passed over. */
+	snprintf(uname, sizeof(uname), "%u", uid);
+
+	pthread_mutex_lock(&usercache.lock);
+	for(u = usercache.users; u; u = u->next) {
+		if(u->uid != (uid_t) -1 && u->uid == uid)
+			break;
+	}
+	if(!u) {
+		u = np_malloc(sizeof(*u) + strlen(uname) + 1);
+		pthread_mutex_init(&u->lock, NULL);
+		u->refcount = 1;
+		u->upool = up;
+		u->uid = uid;
+		u->uname = (char *)u + sizeof(*u);
+		strcpy(u->uname, uname);
+		u->dfltgroup = NULL;
+		u->ngroups = 0;
+		u->groups = NULL;
+		u->next = NULL;
+		u->dfltgroup = (*up->gname2group)(up, uname);
+
+		u->next = usercache.users;
+		usercache.users = u;
+	}
+	np_user_incref(u);
+	pthread_mutex_unlock(&usercache.lock);
+	return u;
 }
 
 static Npgroup *
@@ -112,4 +146,4 @@ static Npuserpool upool = {
 	np_simpl_gdestroy,
 };
 
-Npuserpool *np_default_users = &upool;
+Npuserpool *np_simpl_users = &upool;

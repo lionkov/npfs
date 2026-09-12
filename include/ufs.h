@@ -24,8 +24,15 @@
 /* Start the 9P2000.L server.
  * If port is positive, it will be a TCP server listening on that port.
  * Otherwise, a pipe server should be added with ufs_add_conn.
+ *
+ * If confine is non-zero the server's worker threads take rootdir as
+ * their root directory (np_srv_confine), so no name a client sends can
+ * name a file outside the exported tree whatever the client does with
+ * ".." or with symlinks. It needs the privilege to chroot, and a server
+ * that cannot have it does not start.
  */
-Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int sameuser, int msize);
+Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int sameuser,
+	int msize, int confine);
 
 /* Create a new connection, messages can be written to wfd and read from rfd */
 Npconn *ufs_connect(Npsrv *srv, int *rfd, int *wfd);

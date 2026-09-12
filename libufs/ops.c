@@ -102,6 +102,30 @@ static u32 umode2npmode(mode_t umode, int dotu);
 static mode_t npstat2umode(Npstat *st, int dotu);
 static void ustat2npwstat(char *path, struct stat *st, Npwstat *wstat, int dotu, Npuserpool *up);
 
+/* base[0:blen] + "/" + name[0:nlen]. The separator is not doubled when base
+ * already ends in one, which the tree root does whenever the server has been
+ * confined to it: a path beginning with exactly two slashes is not portably
+ * the same file as one beginning with a single slash. */
+static char *
+ufs_join(const char *base, int blen, const char *name, int nlen)
+{
+	int sep;
+	char *p;
+
+	sep = (blen > 0 && base[blen - 1] == '/') ? 0 : 1;
+	p = malloc(blen + sep + nlen + 1);
+	if (!p)
+		return NULL;
+
+	memmove(p, base, blen);
+	if (sep)
+		p[blen] = '/';
+	memmove(p + blen + sep, name, nlen);
+	p[blen + sep + nlen] = '\0';
+
+	return p;
+}
+
 int
 fidstat(Fid *fid)
 {
@@ -416,11 +440,7 @@ npfs_attach(Npfid *nfid, Npfid *nafid, Npstr *uname, Npstr *aname)
 
 	rootdir = (char *) nfid->conn->srv->treeaux;
 	n = strlen(rootdir);
-	path = malloc(n + aname->len + 2);
-	memmove(path, rootdir, n);
-	path[n] = '/';
-	memmove(&path[n+1], aname->str, aname->len);
-	path[n + 1 + aname->len] = '\0';
+	path = ufs_join(rootdir, n, aname->str, aname->len);
 	fid->path = path;
 	nfid->aux = fid;
 	err = fidstat(fid);
@@ -468,11 +488,7 @@ npfs_walk(Npfid *fid, Npstr* wname, Npqid *wqid)
 		create_rerror(n);
 
 	n = strlen(f->path);
-	path = malloc(n + wname->len + 2);
-	memcpy(path, f->path, n);
-	path[n] = '/';
-	memcpy(path + n + 1, wname->str, wname->len);
-	path[n + wname->len + 1] = '\0';
+	path = ufs_join(f->path, n, wname->str, wname->len);
 
 	if (lstat(path, &st) < 0) {
 		free(path);
@@ -626,11 +642,7 @@ npfs_create(Npfid *fid, Npstr *name, u32 perm, u8 mode, Npstr *extension)
 		create_rerror(err);
 
 	n = strlen(f->path);
-	npath = malloc(n + name->len + 2);
-	memmove(npath, f->path, n);
-	npath[n] = '/';
-	memmove(npath + n + 1, name->str, name->len);
-	npath[n + name->len + 1] = '\0';
+	npath = ufs_join(f->path, n, name->str, name->len);
 
 	if (lstat(npath, &st)==0 || errno!=ENOENT) {
 		np_werror(Eexist, EEXIST);
@@ -729,8 +741,8 @@ npfs_read_dir(Npfid *fid, u8* buf, u64 offset, u32 count, int dotu)
 		|| strcmp(dirent->d_name, "..") == 0)
 			continue;
 
-		path = malloc(plen + strlen(dirent->d_name) + 2);
-		sprintf(path, "%s/%s", f->path, dirent->d_name);
+		path = ufs_join(f->path, plen, dirent->d_name,
+			strlen(dirent->d_name));
 		if (lstat(path, &st) < 0) {
 			free(path);
 			create_rerror(errno);
@@ -1023,11 +1035,8 @@ npfs_wstat(Npfid *fid, Npstat *stat)
 		if (!p)
 			p = f->path + strlen(f->path);
 
-		npath = malloc(stat->name.len + (p - f->path) + 2);
-		memcpy(npath, f->path, p - f->path);
-		npath[p - f->path] = '/';
-		memcpy(npath + (p - f->path) + 1, stat->name.str, stat->name.len);
-		npath[(p - f->path) + 1 + stat->name.len] = 0;
+		npath = ufs_join(f->path, p - f->path, stat->name.str,
+			stat->name.len);
 		if (strcmp(npath, f->path) != 0) {
 			if (rename(f->path, npath) < 0) {
 				create_rerror(errno);
@@ -1133,11 +1142,7 @@ Npfcall* npfs_lcreate(Npfid *fid, Npstr *name, u32 flags, u32 perm, u32 gid)
 		create_rerror(err);
 
 	n = strlen(f->path);
-	npath = malloc(n + name->len + 2);
-	memmove(npath, f->path, n);
-	npath[n] = '/';
-	memmove(npath + n + 1, name->str, name->len);
-	npath[n + name->len + 1] = '\0';
+	npath = ufs_join(f->path, n, name->str, name->len);
 
 	flags |= O_CREAT;
 	f->fd = open(npath, O_CREAT|flags, perm);
@@ -1175,11 +1180,7 @@ Npfcall* npfs_symlink(Npfid *dfid, Npstr *name, Npstr *symtgt, u32 gid)
 	ret = NULL;
 	f = dfid->aux;
 	n = strlen(f->path);
-	npath = malloc(n + name->len + 2);
-	memmove(npath, f->path, n);
-	npath[n] = '/';
-	memmove(npath + n + 1, name->str, name->len);
-	npath[n + name->len + 1] = '\0';
+	npath = ufs_join(f->path, n, name->str, name->len);
 
 	target = malloc(symtgt->len + 1);
 	memmove(target, symtgt->str, symtgt->len);
@@ -1216,11 +1217,7 @@ Npfcall* npfs_mknod(Npfid *dfid, Npstr *name, u32 perm, u32 major, u32 minor, u3
 	ret = NULL;
 	f = dfid->aux;
 	n = strlen(f->path);
-	npath = malloc(n + name->len + 2);
-	memmove(npath, f->path, n);
-	npath[n] = '/';
-	memmove(npath + n + 1, name->str, name->len);
-	npath[n + name->len + 1] = '\0';
+	npath = ufs_join(f->path, n, name->str, name->len);
 
 	if (mknod(npath, perm, makedev(major, minor)) < 0) {
 		create_rerror(errno);
@@ -1252,11 +1249,7 @@ Npfcall* npfs_rename(Npfid *fid, Npfid *dfid, Npstr *name)
 	f = fid->aux;
 	df = dfid->aux;
 	n = strlen(df->path);
-	npath = malloc(n + name->len + 2);
-	memmove(npath, df->path, n);
-	npath[n] = '/';
-	memmove(npath + n + 1, name->str, name->len);
-	npath[n + name->len + 1] = '\0';
+	npath = ufs_join(df->path, n, name->str, name->len);
 
 	if (rename(f->path, npath) < 0) {
 		create_rerror(errno);
@@ -1560,8 +1553,8 @@ Npfcall* npfs_readdir(Npfid *dfid, u64 offset, u32 count, Npreq *req)
 
 		memset(&qid, 0, sizeof(qid));
 		if (d->d_type == DT_UNKNOWN) {
-			path = malloc(plen + strlen(d->d_name) + 2);
-			sprintf(path, "%s/%s", f->path, d->d_name);
+			path = ufs_join(f->path, plen, d->d_name,
+				strlen(d->d_name));
 		
 			if (lstat(path, &st) < 0) {
 				free(path);
@@ -1695,11 +1688,7 @@ Npfcall* npfs_link(Npfid *dfid, Npfid *fid, Npstr *name)
 	ret = NULL;
 	f = dfid->aux;
 	n = strlen(f->path);
-	npath = malloc(n + name->len + 2);
-	memmove(npath, f->path, n);
-	npath[n] = '/';
-	memmove(npath + n + 1, name->str, name->len);
-	npath[n + name->len + 1] = '\0';
+	npath = ufs_join(f->path, n, name->str, name->len);
 
 	if (link(f->path, npath) < 0) {
 		create_rerror(errno);
@@ -1725,11 +1714,7 @@ Npfcall* npfs_mkdir(Npfid *dfid, Npstr *name, u32 perm, u32 gid)
 	ret = NULL;
 	f = dfid->aux;
 	n = strlen(f->path);
-	npath = malloc(n + name->len + 2);
-	memmove(npath, f->path, n);
-	npath[n] = '/';
-	memmove(npath + n + 1, name->str, name->len);
-	npath[n + name->len + 1] = '\0';
+	npath = ufs_join(f->path, n, name->str, name->len);
 
 	// TODO: gid???
 	if (mkdir(npath, perm&0777) < 0) {
@@ -1762,18 +1747,10 @@ Npfcall* npfs_renameat(Npfid *dfid, Npstr *oname, Npfid *newfid, Npstr *name)
 	nf = newfid->aux;
 
 	n = strlen(of->path);
-	opath = malloc(n + oname->len + 2);
-	memmove(opath, of->path, n);
-	opath[n] = '/';
-	memmove(opath + n + 1, oname->str, oname->len);
-	opath[n + oname->len + 1] = '\0';
+	opath = ufs_join(of->path, n, oname->str, oname->len);
 
 	n = strlen(nf->path);
-	npath = malloc(n + name->len + 2);
-	memmove(npath, nf->path, n);
-	npath[n] = '/';
-	memmove(npath + n + 1, name->str, name->len);
-	npath[n + name->len + 1] = '\0';
+	npath = ufs_join(nf->path, n, name->str, name->len);
 
 	if (rename(opath, npath) < 0) {
 		create_rerror(errno);
