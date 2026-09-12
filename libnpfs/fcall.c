@@ -344,7 +344,12 @@ np_walk(Npreq *req, Npfcall *tc)
 		goto done;
 
 	np_werror(NULL, 0);
-	if (tc->fid != tc->newfid)
+	/* The reference the pool keeps is taken only when the walk reached
+	 * every name it was given. A short Rwalk says how far it got and
+	 * leaves the fid the client asked for uncreated, so the decref below
+	 * is what destroys it -- a client cannot hold a fid on a place the
+	 * walk stopped at on its way somewhere else. */
+	if (tc->fid != tc->newfid && i == tc->nwname)
 		np_fid_incref(newfid);
 	rc = np_create_rwalk(i, wqids);
 
