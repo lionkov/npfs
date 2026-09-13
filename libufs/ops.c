@@ -1600,15 +1600,21 @@ Npfcall* npfs_fsync(Npfid *fid)
 {
 	Fid *f;
 	Npfcall *ret;
+	int fd;
 
 	ret = NULL;
 	f = fid->aux;
-	if (f->fd == -1) {
-		create_rerror(EINVAL);
+	/* A directory fid was opened with opendir() and keeps its descriptor
+	 * inside the DIR; fsync on it is as legal as on a file's (it flushes
+	 * the directory's entries), and a client that syncs a rename or a
+	 * create fsyncs the parent it happened in. */
+	fd = f->fd != -1 ? f->fd : (f->dir ? dirfd(f->dir) : -1);
+	if (fd == -1) {
+		create_rerror(EBADF);
 		goto out;
 	}
 
-	if (fsync(f->fd) < 0) {
+	if (fsync(fd) < 0) {
 		create_rerror(errno);
 		goto out;
 	}
