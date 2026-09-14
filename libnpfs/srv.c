@@ -43,7 +43,6 @@ static void np_wthread_create(Npsrv *srv);
 static void np_srv_destroy(Npsrv *srv);
 static void np_wthread_create(Npsrv *srv);
 static void *np_wthread_proc(void *a);
-static int np_wthread_confine(char *path);
 
 static Npfcall* np_default_version(Npconn *, u32, Npstr *);
 static Npfcall* np_default_attach(Npfid *, Npfid *, Npstr *, Npstr *);
@@ -202,10 +201,8 @@ np_srv_confine(Npsrv *srv, char *path)
 	return ret;
 }
 
-/* Take `path` as this thread's root. Returns 1 on success, -1 with
- * errno set otherwise. */
-static int
-np_wthread_confine(char *path)
+int
+np_thread_confine(char *path)
 {
 #ifdef SYSNAME_Linux
 	/* A thread's root and working directory live in state that threads
@@ -517,7 +514,7 @@ np_wthread_proc(void *a)
 	pthread_mutex_lock(&srv->lock);
 	while (!wt->shutdown) {
 		if (srv->confine && !wt->confined) {
-			wt->confined = np_wthread_confine(srv->confine);
+			wt->confined = np_thread_confine(srv->confine);
 			if (wt->confined < 0 && !srv->confineerr)
 				srv->confineerr = errno;
 			srv->nconfined++;

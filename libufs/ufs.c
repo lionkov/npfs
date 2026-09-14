@@ -232,6 +232,80 @@ int ufs_checkpoint(Npconn *conn, void **buf)
 	return sz;
 }
 
+/* The fids of a restore, each reopened by its path. On a confined
+ * server a path is rooted at the tree, so it resolves only from a thread
+ * that holds the tree as its root: the setup then runs on a thread
+ * confined like the workers, and on the caller's thread otherwise. A
+ * path the caller's thread resolved instead would name a file beside
+ * the tree, or nothing. */
+struct restore_setup {
+	Npfid **fids;
+	int nfids;
+	char *err;
+	int errsz;
+	int n;		/* bytes of err written so far */
+	char *confine;	/* the root to take, NULL for the caller's */
+	int confineerr;	/* errno when the root could not be taken */
+};
+
+static void
+restore_setup_fids(struct restore_setup *rs)
+{
+	int i, n, errsz, errval;
+	char *err;
+
+	err = rs->err;
+	errsz = rs->errsz;
+	n = rs->n;
+	// Set up every fid and report every failure, not just the first
+	for(i = 0; i < rs->nfids; i++) {
+		Npfid *fid = rs->fids[i];
+		Fid *f = fid->aux;
+
+		if ((errval = fidstat(f)) != 0) {
+			if (errsz > n)
+				n += snprintf(err + n, errsz - n, "Can't stat file %s: %d\n", f->path, errval);
+		}
+
+		if (fid->omode != Onotopen) {
+			if (S_ISDIR(f->stat.st_mode)) {
+				f->dir = opendir(f->path);
+				if (!f->dir) {
+					if (errsz > n)
+						n += snprintf(err + n, errsz - n, "Can't opendir file %s: %d\n", f->path, errno);
+				}
+			} else {
+				int flags;
+
+				flags = omode2uflags(fid->omode);
+				flags &= ~(O_TRUNC | O_EXCL);
+				f->fd = open(f->path, flags);
+				if (f->fd < 0)
+					if (errsz > n)
+						n += snprintf(err + n, errsz - n, "Can't open file %s: %d\n", f->path, errno);
+			}
+		}
+
+		np_fid_incref(fid);
+	}
+
+	rs->n = n;
+}
+
+static void *
+restore_setup_confined(void *a)
+{
+	struct restore_setup *rs = a;
+
+	if (np_thread_confine(rs->confine) < 0) {
+		rs->confineerr = errno;
+		return NULL;
+	}
+
+	restore_setup_fids(rs);
+	return NULL;
+}
+
 int ufs_restore(Npconn *conn, void *buf, int sz, char *err, int errsz)
 {
 	int i, n, nfids, errval;
@@ -241,6 +315,7 @@ int ufs_restore(Npconn *conn, void *buf, int sz, char *err, int errsz)
 	struct cbuf cbuf;
 	Npstr str;
 	Npsrv *srv;
+	struct restore_setup rs;
 
 	srv = conn->srv;
 	n = 0;
@@ -311,37 +386,36 @@ int ufs_restore(Npconn *conn, void *buf, int sz, char *err, int errsz)
 		goto error;
 	}
 
-	// Go over the fids and set them up. If there are errors, return as many as possible
-	for(i = 0; i < nfids; i++) {
-		Npfid *fid = fids[i];
-		Fid *f = fid->aux;
+	rs.fids = fids;
+	rs.nfids = nfids;
+	rs.err = err;
+	rs.errsz = errsz;
+	rs.n = n;
+	rs.confine = srv->confine;
+	rs.confineerr = 0;
+	if (srv->confine) {
+		pthread_t th;
 
-		if ((errval = fidstat(f)) != 0) {
+		if ((errval = pthread_create(&th, NULL, restore_setup_confined, &rs)) != 0) {
 			if (errsz > n)
-				n += snprintf(err, errsz - n, "Can't stat file %s: %d\n", f->path, errval);
+				n += snprintf(err + n, errsz - n, "Can't start the restore thread: %d\n", errval);
+
+			goto error;
 		}
 
-		if (fid->omode != Onotopen) {
-			if (S_ISDIR(f->stat.st_mode)) {
-				f->dir = opendir(f->path);
-				if (!f->dir) {
-					if (errsz > n)
-						n += snprintf(err, errsz - n, "Can't opendir file %s: %d\n", f->path, errno);
-				}
-			} else {
-				int flags;
+		pthread_join(th, NULL);
+		n = rs.n;
+		if (rs.confineerr) {
+			if (errsz > n)
+				n += snprintf(err + n, errsz - n, "Can't take %s as the root: %d\n", srv->confine, rs.confineerr);
 
-				flags = omode2uflags(fid->omode);
-				flags &= ~(O_TRUNC | O_EXCL);
-				f->fd = open(f->path, flags);
-				if (f->fd < 0)
-					if (errsz > n)
-						n += snprintf(err, errsz - n, "Can't open file %s: %d\n", f->path, errno);
-			}
+			goto error;
 		}
-
-		np_fid_incref(fid);
+	} else {
+		restore_setup_fids(&rs);
+		n = rs.n;
 	}
+
 	free(fids);
 
 	if (n > 0)

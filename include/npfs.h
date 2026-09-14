@@ -743,6 +743,12 @@ Npsrv *np_srv_create(int nwthread);
  * np_srv_start.
  */
 int np_srv_confine(Npsrv *srv, char *path);
+/* Take `path` as the calling thread's root directory, the way
+ * np_srv_confine does for the workers: the thread's root and working
+ * directory are detached from the process's first, so nothing else
+ * moves. Returns 1, or -1 with errno set; ENOSYS where a thread has no
+ * root of its own. */
+int np_thread_confine(char *path);
 void np_srv_remove_conn(Npsrv *, Npconn *);
 void np_srv_start(Npsrv *);
 void np_srv_shutdown(Npsrv *, int wait);
