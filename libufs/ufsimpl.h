@@ -22,6 +22,12 @@
  */
 
 typedef struct Fid Fid;
+typedef struct Ufssrv Ufssrv;
+
+/* A server's options, behind srv->srvaux. */
+struct Ufssrv {
+	int		ids;		/* UFS_IDS_* */
+};
 
 struct Fid {
 	char*		path;
@@ -29,7 +35,14 @@ struct Fid {
 	int		fd;
 	DIR*		dir;
 //	int		diroffset;
+	/* The client's view: under the mapped id model the attributes'
+	 * ownership, mode and device number laid over the host's. */
 	struct stat	stat;
+	/* The host's own st_mode, which says what the file really is: a
+	 * mapped symlink or device node is a regular file here. */
+	mode_t		hmode;
+	/* The server's id model is UFS_IDS_MAPPED. */
+	int		mapped;
 
 	char*		xattrname;	// xattrcreate
 	u32		xattrflags;	// xattrcreate
@@ -39,6 +52,8 @@ struct Fid {
 
 extern int debuglevel;
 extern int sameuser;
+
+int ufs_mapped(Npsrv *srv);
 
 int fidstat(Fid *fid);
 Fid* npfs_fidalloc();

@@ -46,10 +46,18 @@ Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int same_user,
 	int msize, int confine)
 {
 	Npsrv *srv;
+	Ufssrv *u;
 
 	srv = np_srv_create(nwthreads);
 	if (!srv)
 		return NULL;
+
+	u = calloc(1, sizeof(*u));
+	if (!u)
+		return NULL;
+
+	u->ids = UFS_IDS_PASSTHROUGH;
+	srv->srvaux = u;
 
 	if (msize > 0)
 		srv->msize = msize;
@@ -108,6 +116,24 @@ Npsrv *ufs_start(char *rootdir, int debuglevel, int nwthreads, int same_user,
 	np_srv_start(srv);
 
 	return srv;
+}
+
+int ufs_set_ids(Npsrv *srv, int ids)
+{
+	Ufssrv *u;
+
+	if (ids != UFS_IDS_PASSTHROUGH && ids != UFS_IDS_MAPPED) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	/* No request reads this before the first connection, and a
+	 * connection is made under the server's lock, which every worker
+	 * takes before it serves. */
+	u = srv->srvaux;
+	u->ids = ids;
+
+	return 0;
 }
 
 Npconn *ufs_connect(Npsrv *srv, int *rfd, int *wfd)
@@ -332,6 +358,7 @@ int ufs_restore(Npconn *conn, void *buf, int sz, char *err, int errsz)
 		Fid *f;
 
 		f = npfs_fidalloc();
+		f->mapped = ufs_mapped(srv);
 		fidno = buf_get_int32(&cbuf);
 		if (buf_check_overflow(&cbuf))
 			break;

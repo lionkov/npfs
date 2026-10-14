@@ -62,10 +62,12 @@
 #define STAT_MTIME(st) ((st)->st_mtimespec)
 #define STAT_ATIME(st) ((st)->st_atimespec)
 #define STAT_CTIME(st) ((st)->st_ctimespec)
-#define SETXATTR(path, name, val, valsz, flags) setxattr(path, name, val, valsz, 0, flags)
-#define LISTXATTR(path, buf, bufsz) listxattr(path, buf, bufsz, 0)
-#define GETXATTR(path, name, val, valsz) getxattr(path, name, val, valsz, 0, 0)
-#define REMOVEXATTR(path, name) removexattr(path, name, 0)
+/* XATTR_NOFOLLOW, so a symlink's attributes are its own as Linux's l*
+ * calls make them, not its target's. */
+#define SETXATTR(path, name, val, valsz, flags) setxattr(path, name, val, valsz, 0, (flags) | XATTR_NOFOLLOW)
+#define LISTXATTR(path, buf, bufsz) listxattr(path, buf, bufsz, XATTR_NOFOLLOW)
+#define GETXATTR(path, name, val, valsz) getxattr(path, name, val, valsz, 0, XATTR_NOFOLLOW)
+#define REMOVEXATTR(path, name) removexattr(path, name, XATTR_NOFOLLOW)
 #define DIRENT_OFF(d) ((d)->d_seekoff)
 #define STATFS_NAMELEN(sf) 0
 
@@ -81,6 +83,26 @@
 #define DIRENT_OFF(d) ((d)->d_off)
 #define STATFS_NAMELEN(sf) ((sf)->f_namelen)
 
+#endif
+
+/* The mapped id model's attributes (ufs.h, UFS_IDS_MAPPED). */
+#define VIRTFS_PREFIX	"user.virtfs."
+#define VIRTFS_UID	VIRTFS_PREFIX "uid"
+#define VIRTFS_GID	VIRTFS_PREFIX "gid"
+#define VIRTFS_MODE	VIRTFS_PREFIX "mode"
+#define VIRTFS_RDEV	VIRTFS_PREFIX "rdev"
+
+/* The host modes of what the client makes under the mapped model: the
+ * server's alone, so it can serve the file whatever mode the client set. */
+#define MAPPED_FILE_MODE	0600
+#define MAPPED_DIR_MODE		0700
+
+/* "No such attribute": ENOATTR where the system names it, ENODATA on
+ * Linux, which does not. */
+#ifdef ENOATTR
+#define ENOXATTR	ENOATTR
+#else
+#define ENOXATTR	ENODATA
 #endif
 
 Npsrv *srv;
@@ -126,18 +148,145 @@ ufs_join(const char *base, int blen, const char *name, int nlen)
 	return p;
 }
 
-/* Stat the fid's file into fid->stat. Returns 0, or the errno of the
- * failure -- a positive number, so a caller tests it for non-zero. */
+int
+ufs_mapped(Npsrv *srv)
+{
+	Ufssrv *u;
+
+	u = srv->srvaux;
+	return u != NULL && u->ids == UFS_IDS_MAPPED;
+}
+
+/* One mapped attribute, n little-endian bytes, into *val. Returns 0 with
+ * *found set when the file carries it and clear when it does not, or the
+ * errno. A symlink cannot carry one, and says so as EPERM or ENOTSUP. */
+static int
+mapped_get(const char *path, const char *name, int n, u64 *val, int *found)
+{
+	u8 buf[8];
+	ssize_t r;
+	int i;
+
+	*found = 0;
+	r = GETXATTR(path, name, buf, n);
+	if (r < 0) {
+		if (errno == ENOXATTR || errno == ENOTSUP || errno == EPERM)
+			return 0;
+
+		return errno;
+	}
+
+	/* A shorter value is not one this model wrote; a longer one fails
+	 * above with ERANGE. */
+	if (r != n)
+		return EIO;
+
+	*val = 0;
+	for(i = 0; i < n; i++)
+		*val |= (u64) buf[i] << (8 * i);
+
+	*found = 1;
+	return 0;
+}
+
+static int
+mapped_put(const char *path, const char *name, int n, u64 val)
+{
+	u8 buf[8];
+	int i;
+
+	for(i = 0; i < n; i++)
+		buf[i] = val >> (8 * i);
+
+	if (SETXATTR(path, name, buf, n, 0) < 0)
+		return errno;
+
+	return 0;
+}
+
+/* Lay a file's mapped attributes over its host stat. One that carries
+ * none reads as owned by 0:0, with its own mode and device number. */
+static int
+mapped_stat(const char *path, struct stat *st)
+{
+	int err, found;
+	u64 v;
+
+	if ((err = mapped_get(path, VIRTFS_UID, 4, &v, &found)) != 0)
+		return err;
+	st->st_uid = found? (uid_t) v: 0;
+
+	if ((err = mapped_get(path, VIRTFS_GID, 4, &v, &found)) != 0)
+		return err;
+	st->st_gid = found? (gid_t) v: 0;
+
+	if ((err = mapped_get(path, VIRTFS_MODE, 4, &v, &found)) != 0)
+		return err;
+	if (found)
+		st->st_mode = (mode_t) v;
+
+	if ((err = mapped_get(path, VIRTFS_RDEV, 8, &v, &found)) != 0)
+		return err;
+	if (found)
+		st->st_rdev = (dev_t) v;
+
+	return 0;
+}
+
+/* A path's stat as the client sees it. Returns 0 or the errno. */
+static int
+ufs_lstat(const char *path, struct stat *st, int mapped)
+{
+	if (lstat(path, st) < 0)
+		return errno;
+
+	return mapped? mapped_stat(path, st): 0;
+}
+
+/* The attributes of a file the client has just made: its owner, its
+ * group, its mode with the file type in it, and a device's number. */
+static int
+mapped_create(const char *path, u32 uid, u32 gid, u32 mode, int hasrdev,
+	u64 rdev)
+{
+	int err;
+
+	if ((err = mapped_put(path, VIRTFS_UID, 4, uid)) != 0)
+		return err;
+
+	if ((err = mapped_put(path, VIRTFS_GID, 4, gid)) != 0)
+		return err;
+
+	if ((err = mapped_put(path, VIRTFS_MODE, 4, mode)) != 0)
+		return err;
+
+	if (hasrdev && (err = mapped_put(path, VIRTFS_RDEV, 8, rdev)) != 0)
+		return err;
+
+	return 0;
+}
+
+/* Whether an attribute name is one of the mapped model's own. */
+static int
+mapped_name(const char *name, int len)
+{
+	int n;
+
+	n = sizeof(VIRTFS_PREFIX) - 1;
+	return len >= n && memcmp(name, VIRTFS_PREFIX, n) == 0;
+}
+
+/* Stat the fid's file into fid->stat, as the client sees it, and its own
+ * mode into fid->hmode. Returns 0, or the errno of the failure -- a
+ * positive number, so a caller tests it for non-zero. */
 int
 fidstat(Fid *fid)
 {
 	if (lstat(fid->path, &fid->stat) < 0)
 		return errno;
 
-//	if (S_ISDIR(fid->stat.st_mode))
-//		fid->stat.st_size = 0;
-
-	return 0;
+	fid->hmode = fid->stat.st_mode;
+	return fid->mapped? mapped_stat(fid->path, &fid->stat): 0;
 }
 
 Fid* npfs_fidalloc() {
@@ -154,6 +303,8 @@ Fid* npfs_fidalloc() {
 	f->xattrdata = NULL;
 	f->xattrsz = 0;
 	f->xattrflags = 0;
+	f->hmode = 0;
+	f->mapped = 0;
 
 	return f;
 }
@@ -439,6 +590,7 @@ npfs_attach(Npfid *nfid, Npfid *nafid, Npstr *uname, Npstr *aname)
 
 	fid = npfs_fidalloc();
 	fid->omode = -1;
+	fid->mapped = ufs_mapped(nfid->conn->srv);
 
 	rootdir = (char *) nfid->conn->srv->treeaux;
 	n = strlen(rootdir);
@@ -468,6 +620,7 @@ npfs_clone(Npfid *fid, Npfid *newfid)
 	f = fid->aux;
 	nf = npfs_fidalloc();
 	nf->path = strdup(f->path);
+	nf->mapped = f->mapped;
 	newfid->aux = nf;
 //	newfid->type = fid->type;
 
@@ -494,9 +647,9 @@ npfs_walk(Npfid *fid, Npstr* wname, Npqid *wqid)
 	n = strlen(f->path);
 	path = ufs_join(f->path, n, wname->str, wname->len);
 
-	if (lstat(path, &st) < 0) {
+	if ((n = ufs_lstat(path, &st, f->mapped)) != 0) {
 		free(path);
-		create_rerror(errno);
+		create_rerror(n);
 		return 0;
 	}
 
@@ -650,6 +803,12 @@ npfs_create(Npfid *fid, Npstr *name, u32 perm, u8 mode, Npstr *extension)
 	ret = NULL;
 	omode = mode;
 	f = fid->aux;
+	/* The mapped id model covers 9P2000.L (ufs.h). */
+	if (f->mapped) {
+		create_rerror(EOPNOTSUPP);
+		return NULL;
+	}
+
 	if ((err = fidstat(f)) != 0) {
 		create_rerror(err);
 		return NULL;
@@ -978,6 +1137,12 @@ npfs_wstat(Npfid *fid, Npstat *stat)
 
 	ret = NULL;
 	f = fid->aux;
+	/* The mapped id model covers 9P2000.L (ufs.h). */
+	if (f->mapped) {
+		create_rerror(EOPNOTSUPP);
+		goto out;
+	}
+
 	up = fid->conn->srv->upool;
 	npfs_set_user(fid->user);
 	err = fidstat(f);
@@ -1154,7 +1319,7 @@ Npfcall* npfs_lopen(Npfid *fid, u32 flags)
 
 Npfcall* npfs_lcreate(Npfid *fid, Npstr *name, u32 flags, u32 perm, u32 gid)
 {
-	int n, err;
+	int n, err, made;
 	Fid *f;
 	Npfcall *ret;
 	Npqid qid;
@@ -1171,14 +1336,29 @@ Npfcall* npfs_lcreate(Npfid *fid, Npstr *name, u32 flags, u32 perm, u32 gid)
 	npath = ufs_join(f->path, n, name->str, name->len);
 
 	flags |= O_CREAT;
-	f->fd = open(npath, O_CREAT|flags, perm);
+	made = 0;
+	if (f->mapped) {
+		/* The mode is the attribute's and the file the server's. A file
+		 * that is already there keeps the attributes it has, as an
+		 * open of an existing file keeps its owner and mode. */
+		f->fd = open(npath, flags|O_EXCL, MAPPED_FILE_MODE);
+		made = f->fd >= 0;
+		if (f->fd < 0 && errno == EEXIST && !(flags & O_EXCL))
+			f->fd = open(npath, flags & ~O_CREAT);
+	} else
+		f->fd = open(npath, flags, perm);
+
 	if (f->fd < 0) {
 		create_rerror(errno);
 		goto out;
 	}
 
-	if (lstat(npath, &f->stat) < 0) {
-		create_rerror(errno);
+	err = made? mapped_create(npath, fid->user->uid, gid,
+		S_IFREG | (perm & 07777), 0, 0): 0;
+	if (err) {
+		create_rerror(err);
+		close(f->fd);
+		f->fd = -1;
 		remove(npath);
 		goto out;
 	}
@@ -1186,6 +1366,15 @@ Npfcall* npfs_lcreate(Npfid *fid, Npstr *name, u32 flags, u32 perm, u32 gid)
 	free(f->path);
 	f->path = npath;
 	npath = NULL;
+	if ((err = fidstat(f)) != 0) {
+		create_rerror(err);
+		close(f->fd);
+		f->fd = -1;
+		if (made || !f->mapped)
+			remove(f->path);
+		goto out;
+	}
+
 	ustat2qid(&f->stat, &qid);
 	ret = np_create_rlcreate(&qid, 0);
 
@@ -1194,9 +1383,48 @@ out:
 	return ret;
 }
 
+/* A symlink under the mapped model: a regular file that holds the target,
+ * since Linux keeps user.* attributes off a real symlink. Returns 0 or the
+ * errno, and leaves nothing behind on failure. */
+static int
+mapped_symlink(const char *target, int len, const char *path, u32 uid,
+	u32 gid)
+{
+	int fd, err, i;
+	ssize_t w, off;
+
+	fd = open(path, O_CREAT|O_EXCL|O_WRONLY, MAPPED_FILE_MODE);
+	if (fd < 0)
+		return errno;
+
+	/* Each turn writes at least a byte or fails, so the target's length
+	 * bounds the turns. */
+	err = 0;
+	for(i = 0, off = 0; off < len && i < len; i++) {
+		w = write(fd, target + off, len - off);
+		if (w <= 0) {
+			err = w < 0? errno: EIO;
+			break;
+		}
+
+		off += w;
+	}
+
+	if (close(fd) < 0 && !err)
+		err = errno;
+
+	if (!err)
+		err = mapped_create(path, uid, gid, S_IFLNK | 0777, 0, 0);
+
+	if (err)
+		unlink(path);
+
+	return err;
+}
+
 Npfcall* npfs_symlink(Npfid *dfid, Npstr *name, Npstr *symtgt, u32 gid)
 {
-	int n;
+	int n, err;
 	Fid *f;
 	Npfcall *ret;
 	Npqid qid;
@@ -1212,13 +1440,19 @@ Npfcall* npfs_symlink(Npfid *dfid, Npstr *name, Npstr *symtgt, u32 gid)
 	memmove(target, symtgt->str, symtgt->len);
 	target[symtgt->len] = '\0';
 
-	if (symlink(target, npath) < 0) {
-		create_rerror(errno);
+	if (f->mapped)
+		err = mapped_symlink(target, symtgt->len, npath, dfid->user->uid,
+			gid);
+	else
+		err = symlink(target, npath) < 0? errno: 0;
+
+	if (err) {
+		create_rerror(err);
 		goto out;
 	}
 
-	if (lstat(npath, &st) < 0) {
-		create_rerror(errno);
+	if ((err = ufs_lstat(npath, &st, f->mapped)) != 0) {
+		create_rerror(err);
 		goto out;
 	}
 
@@ -1231,9 +1465,40 @@ out:
 	return ret;
 }
 
+/* A node under the mapped model: a regular file whose attributes give its
+ * type and device number. Returns 0 or the errno, and leaves nothing
+ * behind on failure. */
+static int
+mapped_mknod(const char *path, u32 perm, u64 rdev, u32 uid, u32 gid)
+{
+	int fd, err;
+	u32 type;
+
+	type = perm & S_IFMT;
+	if (type == 0)
+		type = S_IFREG;
+
+	if (type != S_IFREG && type != S_IFCHR && type != S_IFBLK
+	&& type != S_IFIFO && type != S_IFSOCK)
+		return EINVAL;
+
+	fd = open(path, O_CREAT|O_EXCL|O_WRONLY, MAPPED_FILE_MODE);
+	if (fd < 0)
+		return errno;
+
+	err = close(fd) < 0? errno: 0;
+	if (!err)
+		err = mapped_create(path, uid, gid, type | (perm & 07777), 1, rdev);
+
+	if (err)
+		unlink(path);
+
+	return err;
+}
+
 Npfcall* npfs_mknod(Npfid *dfid, Npstr *name, u32 perm, u32 major, u32 minor, u32 gid)
 {
-	int n;
+	int n, err;
 	Fid *f;
 	Npfcall *ret;
 	Npqid qid;
@@ -1245,14 +1510,19 @@ Npfcall* npfs_mknod(Npfid *dfid, Npstr *name, u32 perm, u32 major, u32 minor, u3
 	n = strlen(f->path);
 	npath = ufs_join(f->path, n, name->str, name->len);
 
-	if (mknod(npath, perm, makedev(major, minor)) < 0) {
-		create_rerror(errno);
+	if (f->mapped)
+		err = mapped_mknod(npath, perm, makedev(major, minor),
+			dfid->user->uid, gid);
+	else
+		err = mknod(npath, perm, makedev(major, minor)) < 0? errno: 0;
+
+	if (err) {
+		create_rerror(err);
 		goto out;
 	}
 
-
-	if (stat(npath, &st) < 0) {
-		create_rerror(errno);
+	if ((err = ufs_lstat(npath, &st, f->mapped)) != 0) {
+		create_rerror(err);
 		goto out;
 	}
 
@@ -1298,9 +1568,40 @@ out:
 	return ret;
 }
 
+/* The target a mapped symlink's file holds: up to `max` bytes into buf.
+ * Returns the count, or minus the errno. */
+static int
+mapped_readlink(const char *path, char *buf, int max)
+{
+	int fd, n, i, err;
+	ssize_t r;
+
+	fd = open(path, O_RDONLY|O_NOFOLLOW);
+	if (fd < 0)
+		return -errno;
+
+	/* Each turn reads at least a byte or ends, so `max` bounds them. */
+	err = 0;
+	for(i = 0, n = 0; n < max && i < max; i++) {
+		r = read(fd, buf + n, max - n);
+		if (r < 0) {
+			err = errno;
+			break;
+		}
+
+		if (r == 0)
+			break;
+
+		n += r;
+	}
+
+	close(fd);
+	return err? -err: n;
+}
+
 Npfcall* npfs_readlink(Npfid *fid)
 {
-	int n;
+	int n, err;
 	Fid *f;
 	Npfcall *ret;
 	/* A target is at most PATH_MAX - 1 bytes, so it always fits with
@@ -1309,6 +1610,31 @@ Npfcall* npfs_readlink(Npfid *fid)
 
 	ret = NULL;
 	f = fid->aux;
+	if (f->mapped) {
+		if ((err = fidstat(f)) != 0) {
+			create_rerror(err);
+			goto out;
+		}
+
+		/* A symlink the client made under the mapped model is a regular
+		 * file holding its target; one already in the tree is real. */
+		if (!S_ISLNK(f->hmode)) {
+			if (!S_ISLNK(f->stat.st_mode)) {
+				create_rerror(EINVAL);
+				goto out;
+			}
+
+			if ((n = mapped_readlink(f->path, buf, sizeof(buf) - 1)) < 0) {
+				create_rerror(-n);
+				goto out;
+			}
+
+			buf[n] = '\0';
+			ret = np_create_rreadlink(buf);
+			goto out;
+		}
+	}
+
 	if ((n = readlink(f->path, buf, sizeof(buf) - 1)) < 0) {
 		create_rerror(errno);
 		goto out;
@@ -1353,14 +1679,43 @@ Npfcall* npfs_setattr(Npfid *fid, Npattrs *attrs)
 	ret = NULL;
 	f = fid->aux;
 
-	if (attrs->mask & ASmode) {
+	if (f->mapped) {
+		/* The mode, owner and group are the attributes'; the file's
+		 * own stay the server's. The type bits are the file's, so a
+		 * chmod moves only the permission bits. */
+		if ((err = fidstat(f)) != 0) {
+			create_rerror(err);
+			goto out;
+		}
+
+		err = 0;
+		if (attrs->mask & ASmode)
+			err = mapped_put(f->path, VIRTFS_MODE, 4,
+				(f->stat.st_mode & S_IFMT) | (attrs->mode & 07777));
+
+		if (!err && (attrs->mask & ASuid))
+			err = mapped_put(f->path, VIRTFS_UID, 4, attrs->uid);
+
+		if (!err && (attrs->mask & ASgid))
+			err = mapped_put(f->path, VIRTFS_GID, 4, attrs->gid);
+
+		// ASctime alone changes ctime and nothing else
+		if (!err && (attrs->mask & (ASmode | ASuid | ASgid | ASctime))
+		== ASctime && lchown(f->path, -1, -1) < 0)
+			err = errno;
+
+		if (err) {
+			create_rerror(err);
+			goto out;
+		}
+	} else if (attrs->mask & ASmode) {
 		if (chmod(f->path, attrs->mode) < 0) {
 			create_rerror(errno);
 			goto out;
 		}
 	}
 
-	if (attrs->mask & (ASuid | ASgid | ASctime)) {
+	if (!f->mapped && (attrs->mask & (ASuid | ASgid | ASctime))) {
 		uid_t uid = -1;
 		gid_t gid = -1;
 
@@ -1435,6 +1790,29 @@ out:
 	return ret;
 }
 
+/* Remove the mapped model's names from a list of n bytes of NUL-ended
+ * attribute names. Returns the list's new length. */
+static ssize_t
+mapped_unlist(char *buf, ssize_t n)
+{
+	ssize_t i, len, out;
+
+	/* Each turn moves past at least a byte, so n bounds the turns. */
+	out = 0;
+	for(i = 0; i < n; i += len + 1) {
+		len = strnlen(buf + i, n - i);
+		if (len == n - i)	/* no terminator: not a name */
+			break;
+
+		if (!mapped_name(buf + i, len)) {
+			memmove(buf + out, buf + i, len + 1);
+			out += len + 1;
+		}
+	}
+
+	return out;
+}
+
 Npfcall* npfs_xattrwalk(Npfid *fid, Npfid *newfid, Npstr *name)
 {
 	Fid *f, *nf;
@@ -1452,6 +1830,7 @@ Npfcall* npfs_xattrwalk(Npfid *fid, Npfid *newfid, Npstr *name)
 	npfs_set_user(fid->user);
 	nf = npfs_fidalloc();
 	nf->path = strdup(f->path);
+	nf->mapped = f->mapped;
 	newfid->aux = nf;
 	newfid->omode = Oread;
 
@@ -1470,9 +1849,19 @@ lagain:
 			goto lagain;
 		}
 
+		/* The mapped model's own attributes are not the client's to
+		 * see: drop them from the list. */
+		if (nf->mapped)
+			n = mapped_unlist(buf, n);
+
 		nf->xattrsz = n;
 		nf->xattrdata = buf;
 	} else {
+		if (nf->mapped && mapped_name(name->str, name->len)) {
+			create_rerror(ENOXATTR);
+			goto out;
+		}
+
 		xname = np_strdup(name);
 
 aagain:
@@ -1513,6 +1902,11 @@ Npfcall* npfs_xattrcreate(Npfid *fid, Npstr *name, u64 size, u32 flags)
 	f = fid->aux;
 	if (!npfs_check_regular(f))
 		goto out;
+
+	if (f->mapped && mapped_name(name->str, name->len)) {
+		create_rerror(EACCES);
+		goto out;
+	}
 
 	/* xattrdata is what marks the fid as holding an attribute value, so
 	 * it stays non-NULL for a zero-length one. Both allocations succeed
@@ -1609,7 +2003,12 @@ Npfcall* npfs_readdir(Npfid *dfid, u64 offset, u32 count, Npreq *req)
 		}
 
 		off = DIRENT_OFF(d);
-		i = np_serialize_dirent(&qid, off, d->d_type, d->d_name, ret->data + n, count - n - 1);
+		/* Under the mapped model the host's type may not be the
+		 * client's -- a device node is a regular file here -- so the
+		 * entry leaves it to the client's getattr. */
+		i = np_serialize_dirent(&qid, off,
+			f->mapped? DT_UNKNOWN: d->d_type, d->d_name,
+			ret->data + n, count - n - 1);
 		if (i==0) {
 			seekdir(f->dir, diroff);
 			break;
@@ -1738,7 +2137,7 @@ out:
 
 Npfcall* npfs_mkdir(Npfid *dfid, Npstr *name, u32 perm, u32 gid)
 {
-	int n;
+	int n, err;
 	Fid *f;
 	Npfcall *ret;
 	Npqid qid;
@@ -1751,13 +2150,23 @@ Npfcall* npfs_mkdir(Npfid *dfid, Npstr *name, u32 perm, u32 gid)
 	npath = ufs_join(f->path, n, name->str, name->len);
 
 	// TODO: gid???
-	if (mkdir(npath, perm&0777) < 0) {
+	if (mkdir(npath, f->mapped? MAPPED_DIR_MODE: perm&0777) < 0) {
 		create_rerror(errno);
 		goto out;
 	}
 
-	if (stat(npath, &st) < 0) {
-		create_rerror(errno);
+	if (f->mapped) {
+		err = mapped_create(npath, dfid->user->uid, gid,
+			S_IFDIR | (perm & 07777), 0, 0);
+		if (err) {
+			rmdir(npath);
+			create_rerror(err);
+			goto out;
+		}
+	}
+
+	if ((err = ufs_lstat(npath, &st, f->mapped)) != 0) {
+		create_rerror(err);
 		goto out;
 	}
 

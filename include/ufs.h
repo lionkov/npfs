@@ -47,3 +47,29 @@ int ufs_checkpoint(Npconn *conn, void** buf);
  * Returns -1 if there is an error and what errors occured.
  */
 int ufs_restore(Npconn *conn, void *buf, int sz, char *err, int errsz);
+
+/* How a client's file ownership, permissions and device numbers are kept.
+ *
+ * UFS_IDS_PASSTHROUGH, the default: they are the files' own, so a chown
+ * or a mknod is the host's and needs the host's privilege.
+ *
+ * UFS_IDS_MAPPED: they are kept beside each file in extended attributes,
+ * as QEMU's security_model=mapped-xattr keeps them -- user.virtfs.uid,
+ * .gid and .mode, four bytes each, and .rdev, eight, all little-endian --
+ * and the files themselves are the server's, created 0600 (a directory
+ * 0700) whatever mode the client asks for. A file that carries none of
+ * them reads as owned by 0:0, with its own mode and device number, so a
+ * tree the server's user owns reads as root's. A device node, fifo or
+ * socket the client makes is a regular file whose attributes give its
+ * type; a symlink it makes is a regular file that holds the target. A
+ * symlink already in the tree stays one and reads as 0:0, and cannot be
+ * chowned: Linux keeps user.* attributes off symlinks. The client can
+ * neither read, write nor list the user.virtfs.* attributes. The model
+ * covers 9P2000.L; a 9P2000.u create or wstat is refused.
+ *
+ * Set before the first connection. Returns 0, or -1 with errno EINVAL
+ * for a model this library does not know.
+ */
+#define UFS_IDS_PASSTHROUGH	0
+#define UFS_IDS_MAPPED		1
+int ufs_set_ids(Npsrv *srv, int ids);
