@@ -126,6 +126,8 @@ ufs_join(const char *base, int blen, const char *name, int nlen)
 	return p;
 }
 
+/* Stat the fid's file into fid->stat. Returns 0, or the errno of the
+ * failure -- a positive number, so a caller tests it for non-zero. */
 int
 fidstat(Fid *fid)
 {
@@ -444,7 +446,7 @@ npfs_attach(Npfid *nfid, Npfid *nafid, Npstr *uname, Npstr *aname)
 	fid->path = path;
 	nfid->aux = fid;
 	err = fidstat(fid);
-	if (err < 0) {
+	if (err) {
 		create_rerror(err);
 		goto done;
 	}
@@ -484,8 +486,10 @@ npfs_walk(Npfid *fid, Npstr* wname, Npqid *wqid)
 	f = fid->aux;
 	npfs_set_user(fid->user);
 	n = fidstat(f);
-	if (n < 0)
+	if (n) {
 		create_rerror(n);
+		return 0;
+	}
 
 	n = strlen(f->path);
 	path = ufs_join(f->path, n, wname->str, wname->len);
@@ -512,22 +516,30 @@ npfs_open(Npfid *fid, u8 mode)
 
 	f = fid->aux;
 	npfs_set_user(fid->user);
-	if ((err = fidstat(f)) < 0)
+	if ((err = fidstat(f)) != 0) {
 		create_rerror(err);
+		return NULL;
+	}
 
 	if (S_ISDIR(f->stat.st_mode)) {
 		f->dir = opendir(f->path);
-		if (!f->dir)
+		if (!f->dir) {
 			create_rerror(errno);
+			return NULL;
+		}
 	} else {
 		f->fd = open(f->path, omode2uflags(mode));
-		if (f->fd < 0)
+		if (f->fd < 0) {
 			create_rerror(errno);
+			return NULL;
+		}
 	}
 
 	err = fidstat(f);
-	if (err < 0)
+	if (err) {
 		create_rerror(err);
+		return NULL;
+	}
 
 	f->omode = mode;
 	ustat2qid(&f->stat, &qid);
@@ -638,8 +650,10 @@ npfs_create(Npfid *fid, Npstr *name, u32 perm, u8 mode, Npstr *extension)
 	ret = NULL;
 	omode = mode;
 	f = fid->aux;
-	if ((err = fidstat(f)) < 0)
+	if ((err = fidstat(f)) != 0) {
 		create_rerror(err);
+		return NULL;
+	}
 
 	n = strlen(f->path);
 	npath = ufs_join(f->path, n, name->str, name->len);
@@ -935,8 +949,10 @@ npfs_stat(Npfid *fid)
 	f = fid->aux;
 	npfs_set_user(fid->user);
 	err = fidstat(f);
-	if (err < 0)
+	if (err) {
 		create_rerror(err);
+		return NULL;
+	}
 
 	ustat2npwstat(f->path, &f->stat, &wstat, fid->conn->dotu, fid->conn->srv->upool);
 
@@ -965,7 +981,7 @@ npfs_wstat(Npfid *fid, Npstat *stat)
 	up = fid->conn->srv->upool;
 	npfs_set_user(fid->user);
 	err = fidstat(f);
-	if (err < 0) {
+	if (err) {
 		create_rerror(err);
 		goto out;
 	}
@@ -1106,22 +1122,30 @@ Npfcall* npfs_lopen(Npfid *fid, u32 flags)
 
 	f = fid->aux;
 	npfs_set_user(fid->user);
-	if ((err = fidstat(f)) < 0)
+	if ((err = fidstat(f)) != 0) {
 		create_rerror(err);
+		return NULL;
+	}
 
 	if (S_ISDIR(f->stat.st_mode)) {
 		f->dir = opendir(f->path);
-		if (!f->dir)
+		if (!f->dir) {
 			create_rerror(errno);
+			return NULL;
+		}
 	} else {
 		f->fd = open(f->path, flags);
-		if (f->fd < 0)
+		if (f->fd < 0) {
 			create_rerror(errno);
+			return NULL;
+		}
 	}
 
 	err = fidstat(f);
-	if (err < 0)
+	if (err) {
 		create_rerror(err);
+		return NULL;
+	}
 
 	// FIXME: do we need to keep the flags for anything?
 	ustat2qid(&f->stat, &qid);
@@ -1138,8 +1162,10 @@ Npfcall* npfs_lcreate(Npfid *fid, Npstr *name, u32 flags, u32 perm, u32 gid)
 
 	ret = NULL;
 	f = fid->aux;
-	if ((err = fidstat(f)) < 0)
+	if ((err = fidstat(f)) != 0) {
 		create_rerror(err);
+		return NULL;
+	}
 
 	n = strlen(f->path);
 	npath = ufs_join(f->path, n, name->str, name->len);
@@ -1260,7 +1286,7 @@ Npfcall* npfs_rename(Npfid *fid, Npfid *dfid, Npstr *name)
 	free(f->path);
 	f->path = npath;
 	npath = NULL;
-	if ((err = fidstat(f)) < 0) {
+	if ((err = fidstat(f)) != 0) {
 		create_rerror(err);
 		goto out;
 	}
@@ -1277,11 +1303,13 @@ Npfcall* npfs_readlink(Npfid *fid)
 	int n;
 	Fid *f;
 	Npfcall *ret;
-	char buf[1024];
+	/* A target is at most PATH_MAX - 1 bytes, so it always fits with
+	 * its terminator: readlink truncates silently. */
+	char buf[PATH_MAX];
 
 	ret = NULL;
 	f = fid->aux;
-	if ((n = readlink(f->path, buf, sizeof(buf))) < 0) {
+	if ((n = readlink(f->path, buf, sizeof(buf) - 1)) < 0) {
 		create_rerror(errno);
 		goto out;
 	}
@@ -1303,7 +1331,7 @@ Npfcall* npfs_getattr(Npfid *fid, u64 mask)
 
 	ret = NULL;
 	f = fid->aux;
-	if ((err = fidstat(f)) < 0) {
+	if ((err = fidstat(f)) != 0) {
 		create_rerror(err);
 		goto out;
 	}
@@ -1396,7 +1424,7 @@ Npfcall* npfs_setattr(Npfid *fid, Npattrs *attrs)
 		}
 	}
 
-	if ((err = fidstat(f)) < 0) {
+	if ((err = fidstat(f)) != 0) {
 		create_rerror(err);
 		goto out;
 	}
