@@ -96,6 +96,7 @@ np_srv_create(int nwthread)
 	srv->srvaux = NULL;
 	srv->treeaux = NULL;
 	srv->shuttingdown = 0;
+	srv->destroyed = 0;
 	srv->auth = NULL;
 
 	srv->start = NULL;
@@ -237,19 +238,34 @@ np_srv_shutdown(Npsrv *srv, int shutconns)
 
 	conn = NULL;
 	pthread_mutex_lock(&srv->lock);
+	if (srv->shuttingdown) {
+		pthread_mutex_unlock(&srv->lock);
+		return;
+	}
+
 	srv->shuttingdown = 1;
 	if (srv->shutdown)
 		(*srv->shutdown)(srv);
 
+	/* Taking the connections takes the list's references with them, so
+	 * each stays alive while it is shut down below, outside the lock,
+	 * whatever its reader does meanwhile. */
 	if (shutconns) {
 		conn = srv->conns;
 		srv->conns = NULL;
 	}
+
+	/* A server with no connection left has no reader to destroy it when
+	 * it leaves, so it is destroyed here. */
+	if (!srv->conns && !srv->destroyed)
+		np_srv_destroy(srv);
 	pthread_mutex_unlock(&srv->lock);
 
 	while (conn != NULL) {
 		conn1 = conn->next;
+		conn->next = NULL;
 		np_conn_shutdown(conn);
+		np_conn_decref(conn);
 		conn = conn1;
 	}
 }
@@ -261,8 +277,11 @@ np_srv_add_conn(Npsrv *srv, Npconn *conn)
 
 	ret = 0;
 	pthread_mutex_lock(&srv->lock);
-	np_conn_incref(conn);
 	if (!srv->shuttingdown) {
+		/* The list's reference, released by whoever takes the
+		 * connection off it. A refused connection is not on it and
+		 * holds none. */
+		np_conn_incref(conn);
 		conn->srv = srv;
 		conn->next = srv->conns;
 		srv->conns = conn;
@@ -298,18 +317,25 @@ np_srv_remove_conn(Npsrv *srv, Npconn *conn)
 	if (srv->connclose)
 		(*srv->connclose)(conn);
 
-	np_conn_decref(conn);
-	if (srv->shuttingdown && !srv->conns)
+	/* Only a connection this call took off the list gives up the list's
+	 * reference: one np_srv_shutdown took already gave it up there, and
+	 * a refused one never held it. */
+	if (c != NULL)
+		np_conn_decref(conn);
+
+	if (srv->shuttingdown && !srv->conns && !srv->destroyed)
 		np_srv_destroy(srv);
 
 	pthread_mutex_unlock(&srv->lock);
 }
 
+/* Called with the server's lock held. */
 static void
 np_srv_destroy(Npsrv *srv)
 {
 	Npwthread *wt;
 
+	srv->destroyed = 1;
 	for(wt = srv->wthreads; wt != NULL; wt = wt->next) {
 		wt->shutdown = 1;
 	}
@@ -374,14 +400,22 @@ np_wthread_create(Npsrv *srv)
 {
 	int err;
 	Npwthread *wt;
+	pthread_attr_t attr;
 
 	wt = malloc(sizeof(*wt));
 	wt->srv = srv;
 	wt->shutdown = 0;
 	wt->confined = 0;
-	err = pthread_create(&wt->thread, NULL, np_wthread_proc, wt);
+
+	/* Detached: nothing waits for a worker, and a joinable thread that
+	 * exits keeps its stack until it is joined. */
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+	err = pthread_create(&wt->thread, &attr, np_wthread_proc, wt);
+	pthread_attr_destroy(&attr);
 	if (err) {
 		fprintf(stderr, "can't create thread: %d\n", err);
+		free(wt);
 		return;
 	}
 
@@ -547,6 +581,7 @@ np_wthread_proc(void *a)
 		pthread_mutex_lock(&srv->lock);
 	}
 
+	pthread_mutex_unlock(&srv->lock);
 	return NULL;
 }
 

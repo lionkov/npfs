@@ -596,6 +596,10 @@ struct Npsrv {
 	int		nconfined;
 	int		confineerr;
 	int		shuttingdown;
+	/* Set by np_srv_destroy, under the lock. A server down with no
+	 * connection is destroyed once, by whichever of np_srv_shutdown
+	 * and np_srv_remove_conn finds it so first. */
+	int		destroyed;
 	Npconn*		conns;
 	int		nwthread;
 	Npwthread*	wthreads;
